@@ -61,7 +61,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentRole, curre
         const otherUserId = activeConversationId;
         const myId = currentUser.id;
 
-        if (currentRole === 'Manager' || currentRole === 'Admin') {
+        if (currentRole === 'Manager' || currentRole === 'Team Lead' || currentRole === 'Admin') {
             // Ghost Mode: See messages between Selected Student AND their Counselor
             const selectedStudent = STUDENTS.find(s => s.id === otherUserId);
             if (!selectedStudent) return [];
@@ -102,7 +102,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentRole, curre
         }, 1500);
     };
 
-    const isGhostMode = currentRole === 'Manager' || currentRole === 'Admin';
+    const isGhostMode = currentRole === 'Manager' || currentRole === 'Team Lead' || currentRole === 'Admin';
 
     return (
         <div className="h-[calc(100vh-140px)] bg-white border border-gray-200 rounded-xl shadow-sm flex overflow-hidden animate-in fade-in duration-500">

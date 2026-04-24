@@ -1,29 +1,56 @@
-import React from 'react';
-import { STUDENTS } from '../constants';
-import { formatLKR, RATE_UPDATED_AT } from '../utils';
-import { Branch } from '../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { formatRawLKR, RATE_UPDATED_AT } from '../utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { MapPin, TrendingUp, Download, Banknote, Clock } from 'lucide-react';
+import { MapPin, TrendingUp, Download, Banknote, Clock, Plus, X } from 'lucide-react';
 import { Button } from './Button';
-
-const BRANCHES: Branch[] = ['Colombo HQ', 'Kandy', 'Galle', 'Jaffna'];
+import { BranchRow, createBranch, getBranches } from '../authApi';
 
 export const BranchAnalytics: React.FC = () => {
+    const [branches, setBranches] = useState<BranchRow[]>([]);
+    const [isAddOpen, setIsAddOpen] = useState(false);
+    const [location, setLocation] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        const loadBranches = async () => {
+            const result = await getBranches();
+            if (!result.ok) return;
+            setBranches(result.data);
+        };
+        loadBranches();
+    }, []);
+
     // Aggregation Logic
-    const branchData = BRANCHES.map(branch => {
-        const branchStudents = STUDENTS.filter(s => s.branch === branch);
-        const revenue = branchStudents.reduce((acc, s) => acc + (parseFloat(s.budget || "0") * 0.1), 0); // Mock 10% commission
-        const conversions = branchStudents.filter(s => ['Visa Pilot', 'Offer Received'].includes(s.status)).length;
+    const branchData = useMemo(() => branches.map(branch => {
+        const students = branch.totalInquiries || 0;
+        const conversions = branch.successes || 0;
+        const revenue = branch.revenue || 0;
         return {
-            name: branch,
-            students: branchStudents.length,
+            name: branch.location,
+            students,
             revenue: revenue,
             conversions: conversions,
-            conversionRate: branchStudents.length ? Math.round((conversions / branchStudents.length) * 100) : 0
+            conversionRate: students ? Math.round((conversions / students) * 100) : 0
         };
-    });
+    }), [branches]);
+    const totalRevenue = useMemo(
+        () => branchData.reduce((sum, branch) => sum + branch.revenue, 0),
+        [branchData]
+    );
+    const revenueRankedData = useMemo(
+        () =>
+            [...branchData]
+                .sort((a, b) => b.revenue - a.revenue)
+                .map((branch) => ({
+                    ...branch,
+                    revenueShare: totalRevenue > 0 ? (branch.revenue / totalRevenue) * 100 : 0,
+                })),
+        [branchData, totalRevenue]
+    );
 
     return (
+        <>
         <div className="space-y-6 animate-in fade-in duration-500 pb-10">
              <div className="flex justify-between items-end">
                 <div>
@@ -33,9 +60,14 @@ export const BranchAnalytics: React.FC = () => {
                         <Clock size={10} /> Rates updated: {RATE_UPDATED_AT}
                    </p>
                 </div>
-                <Button variant="secondary">
-                    <Download size={16} className="mr-2" /> Export Report
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={() => setIsAddOpen(true)}>
+                        <Plus size={16} className="mr-2" /> Add Branch
+                    </Button>
+                    <Button variant="secondary">
+                        <Download size={16} className="mr-2" /> Export Report
+                    </Button>
+                </div>
             </div>
 
             {/* Metrics Grid */}
@@ -53,7 +85,7 @@ export const BranchAnalytics: React.FC = () => {
                         <div className="grid grid-cols-2 gap-4 mt-4">
                             <div>
                                 <p className="text-xs text-slate-400 uppercase">Revenue</p>
-                                <p className="text-lg font-bold text-slate-900">{formatLKR(data.revenue)}</p>
+                                <p className="text-lg font-bold text-slate-900">{formatRawLKR(data.revenue)}</p>
                             </div>
                             <div>
                                 <p className="text-xs text-slate-400 uppercase">Conv. Rate</p>
@@ -91,18 +123,21 @@ export const BranchAnalytics: React.FC = () => {
                         Revenue Efficiency
                     </h3>
                     <div className="space-y-4">
-                        {branchData.sort((a,b) => b.revenue - a.revenue).map((data, idx) => (
+                        {revenueRankedData.map((data, idx) => (
                             <div key={data.name} className="flex items-center gap-4">
                                 <div className="text-xs font-mono text-slate-400 w-4">{idx + 1}</div>
                                 <div className="flex-1">
                                     <div className="flex justify-between mb-1">
                                         <span className="text-sm font-medium text-slate-700">{data.name}</span>
-                                        <span className="text-sm font-bold text-slate-900">{formatLKR(data.revenue)}</span>
+                                        <div className="text-right">
+                                            <span className="text-sm font-bold text-slate-900">{formatRawLKR(data.revenue)}</span>
+                                            <p className="text-[11px] text-slate-500">{data.revenueShare.toFixed(1)}% of total</p>
+                                        </div>
                                     </div>
                                     <div className="w-full bg-gray-100 rounded-full h-1.5">
                                         <div 
                                             className="bg-emerald-500 h-1.5 rounded-full" 
-                                            style={{ width: `${(data.revenue / 200000) * 100}%` }} // simplistic scale
+                                            style={{ width: `${Math.max(3, data.revenueShare)}%` }}
                                         ></div>
                                     </div>
                                 </div>
@@ -132,5 +167,54 @@ export const BranchAnalytics: React.FC = () => {
                 </div>
             </div>
         </div>
+        {isAddOpen && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                <div className="w-full max-w-md bg-white rounded-xl border border-gray-100 shadow-2xl overflow-hidden">
+                    <div className="p-5 border-b border-gray-100 bg-gray-50/60 flex items-start justify-between">
+                        <div>
+                            <h3 className="font-semibold text-lg text-slate-900">Add Branch</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Add a new branch location.</p>
+                        </div>
+                        <button type="button" className="text-slate-400 hover:text-slate-600" onClick={() => setIsAddOpen(false)}>
+                            <X size={18} />
+                        </button>
+                    </div>
+                    <form
+                        className="p-5 space-y-4"
+                        onSubmit={async (e) => {
+                            e.preventDefault();
+                            setError('');
+                            setIsSaving(true);
+                            const result = await createBranch(location.trim());
+                            setIsSaving(false);
+                            if (!result.ok) {
+                                setError(result.error);
+                                return;
+                            }
+                            setBranches((prev) => [...prev, result.data]);
+                            setLocation('');
+                            setIsAddOpen(false);
+                        }}
+                    >
+                        {error ? <p className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-md px-3 py-2">{error}</p> : null}
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-semibold uppercase tracking-wide text-slate-700">Branch Location</label>
+                            <input
+                                className="w-full px-3 py-2 text-sm bg-slate-50 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                                value={location}
+                                onChange={(e) => setLocation(e.target.value)}
+                                placeholder="e.g. Matara"
+                                required
+                            />
+                        </div>
+                        <div className="pt-2 flex justify-end gap-2">
+                            <Button type="button" variant="ghost" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+                            <Button type="submit" isLoading={isSaving}>Save Branch</Button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        )}
+        </>
     );
 };

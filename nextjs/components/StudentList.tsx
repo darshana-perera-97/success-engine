@@ -1,80 +1,50 @@
 import React, { useMemo, useState } from 'react';
-import { Student, StudentStatus } from '../types';
+import { Student } from '../types';
 import { STUDENTS, EMPLOYEES } from '../constants';
 import { MoreHorizontal, Filter, ChevronDown, UserPlus } from 'lucide-react';
 import { Button } from './Button';
 import { AddStudentModal } from './AddStudentModal';
-import { COUNTRY_CHECKLISTS } from '../constants';
 
 interface StudentListProps {
   onSelectStudent: (student: Student) => void;
   students?: Student[];
   onUpdateStudent?: (student: Student) => void;
   onNavigate?: (view: string) => void;
+  userRole?: string;
+  currentUser?: Student | { id: string; name?: string; email?: string; username?: string };
 }
 
-const ALL_STATUSES: StudentStatus[] = [
-  'New Inquiry',
-  'Counseling',
-  'Documentation',
-  'Uni Application',
-  'Offer Received',
-  'Visa Pilot'
-];
-
-export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent, students = STUDENTS, onUpdateStudent, onNavigate }) => {
+export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent, students = STUDENTS, onUpdateStudent, onNavigate, userRole, currentUser }) => {
   const [filterText, setFilterText] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
+  const counselorIdentitySet = useMemo(() => {
+    const identities = new Set<string>();
+    const addIdentity = (value?: string) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (normalized) identities.add(normalized);
+    };
+    addIdentity(currentUser?.id);
+    addIdentity((currentUser as any)?.email);
+    addIdentity((currentUser as any)?.username);
+    addIdentity(currentUser?.name);
+    return identities;
+  }, [currentUser]);
+
   const filteredStudents = useMemo(() => {
-    return students.filter(s => 
-      s.name.toLowerCase().includes(filterText.toLowerCase()) || 
-      s.id.toLowerCase().includes(filterText.toLowerCase()) ||
-      s.country.toLowerCase().includes(filterText.toLowerCase())
-    );
-  }, [filterText, students]);
-
-  const handleStatusChange = (e: React.MouseEvent | React.ChangeEvent, studentId: string, newStatus: StudentStatus) => {
-    e.stopPropagation(); // Prevent row click
-    const student = students.find(s => s.id === studentId);
-    if (!student || !onUpdateStudent) return;
-
-    // BLOCKER LOGIC
-    const currentIndex = ALL_STATUSES.indexOf(student.status);
-    const newIndex = ALL_STATUSES.indexOf(newStatus);
-
-    // Only block if moving forward
-    if (newIndex > currentIndex) {
-        const countryChecklist = COUNTRY_CHECKLISTS[student.country] || COUNTRY_CHECKLISTS['Default'];
-        const studentDocs = student.documents || [];
-
-        const checkStageRequirements = (stageName: string) => {
-            const stageReqs = countryChecklist.find(c => c.stage === stageName);
-            if (!stageReqs) return true; // No requirements for this stage
-
-            const missingDocs = stageReqs.items.filter(item => {
-                const hasValidDoc = studentDocs.some(d => 
-                    (d.type === item.docType || d.type.includes(item.docType) || item.docType.includes(d.type)) && 
-                    d.status !== 'Rejected'
-                );
-                return !hasValidDoc;
-            });
-
-            if (missingDocs.length > 0) {
-                alert(`Cannot advance to ${newStatus}: Missing or rejected required documents for the ${stageName} stage.\n\nMissing/Rejected: ${missingDocs.map(m => m.docType).join(', ')}`);
-                return false;
-            }
-            return true;
-        };
-
-        // Check all stages up to the new status
-        if (newIndex > ALL_STATUSES.indexOf('Documentation') && !checkStageRequirements('Documentation')) return;
-        if (newIndex > ALL_STATUSES.indexOf('Uni Application') && !checkStageRequirements('Uni Application')) return;
-        if (newIndex > ALL_STATUSES.indexOf('Offer Received') && !checkStageRequirements('Offer Received')) return;
-    }
-
-    onUpdateStudent({ ...student, status: newStatus });
-  };
+    return students.filter(s => {
+      const normalizedCounselor = String(s.counselor || '').trim().toLowerCase();
+      const isVisibleToCounselor =
+        String(userRole || '') !== 'Counselor' || counselorIdentitySet.has(normalizedCounselor);
+      if (!isVisibleToCounselor) return false;
+      const q = filterText.toLowerCase();
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        s.country.toLowerCase().includes(q)
+      );
+    });
+  }, [filterText, students, userRole, counselorIdentitySet]);
 
   const handleAddStudent = (newStudent: Student) => {
       // This should ideally call a prop to add student, but for now we might need to handle it if onAddStudent is not passed.
@@ -85,7 +55,7 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent, stude
       console.warn("Add student not fully implemented with lifted state yet");
   };
 
-  const getStatusColor = (status: StudentStatus) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case 'New Inquiry': return 'bg-slate-100 text-slate-700 border-gray-200';
       case 'Counseling': return 'bg-blue-50 text-blue-700 border-blue-200';
@@ -155,20 +125,10 @@ export const StudentList: React.FC<StudentListProps> = ({ onSelectStudent, stude
                   </td>
                   <td className="px-6 py-3 text-slate-600">{student.country}</td>
                   <td className="px-6 py-3 text-slate-500 text-xs">{student.branch}</td>
-                  <td className="px-6 py-3" onClick={(e) => e.stopPropagation()}>
-                    {/* Status Dropdown - Clean & Easy */}
-                    <div className="relative inline-block">
-                        <select 
-                            value={student.status}
-                            onChange={(e) => handleStatusChange(e, student.id, e.target.value as StudentStatus)}
-                            className={`appearance-none cursor-pointer pl-3 pr-8 py-1 rounded-full text-xs font-medium border bg-transparent focus:ring-2 focus:ring-offset-1 focus:outline-none ${getStatusColor(student.status)}`}
-                        >
-                            {ALL_STATUSES.map(s => (
-                                <option key={s} value={s}>{s}</option>
-                            ))}
-                        </select>
-                        <ChevronDown size={12} className="absolute right-2.5 top-1.5 pointer-events-none opacity-50" />
-                    </div>
+                  <td className="px-6 py-3">
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(student.status)}`}>
+                      {student.status}
+                    </span>
                   </td>
                   <td className="px-6 py-3 text-slate-600 flex items-center gap-2">
                     {getCounselor(student.counselor)?.avatar ? (

@@ -105,7 +105,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({ student, invoices,
         }
     };
 
-    const isStaff = userRole === 'Admin' || userRole === 'Manager' || userRole === 'Counselor';
+    const isStaff = userRole === 'Admin' || userRole === 'Manager' || userRole === 'Team Lead' || userRole === 'Counselor';
 
     return (
         <div className="space-y-6">
@@ -290,7 +290,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({ student, invoices,
             {/* Payment Modal */}
             {isPaymentModalOpen && selectedInvoice && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95">
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-2xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="font-bold text-lg text-slate-900">Process Payment</h3>
                             <button onClick={() => setIsPaymentModalOpen(false)} className="text-slate-400 hover:text-slate-600">

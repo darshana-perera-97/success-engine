@@ -17,7 +17,8 @@ import {
   MessageSquare,
   PlusCircle,
   Clock,
-  Download
+  Download,
+  Eye
 } from "lucide-react";
 import { DocumentManager } from "./DocumentManager";
 import { COUNTRY_CHECKLISTS } from "../constants";
@@ -50,6 +51,36 @@ const KeyDetails = ({ student }) => {
     ] }, item.label)) })
   ] });
 };
+const StudentTasksPanel = ({ student, tasks = [], userRole }) => {
+  const studentTasks = tasks.filter((task) => {
+    if (task.student_id !== student.id) return false;
+    if (userRole === "Student" && task.isPrivate) return false;
+    return true;
+  });
+  const pendingCount = studentTasks.filter((task) => task.status !== "Completed").length;
+  return /* @__PURE__ */ jsxs("div", { className: "bg-white border border-gray-200 rounded-xl p-5 shadow-sm", children: [
+    /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between mb-4", children: [
+      /* @__PURE__ */ jsx("h3", { className: "text-sm font-semibold text-slate-900", children: "Student Tasks" }),
+      /* @__PURE__ */ jsxs("span", { className: "text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full uppercase tracking-wide", children: [
+        pendingCount,
+        " Pending"
+      ] })
+    ] }),
+    studentTasks.length === 0 ? /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-400 italic", children: "No tasks found for this student." }) : /* @__PURE__ */ jsx("div", { className: "space-y-2 max-h-52 overflow-y-auto pr-1", children: studentTasks.slice(0, 8).map((task) => /* @__PURE__ */ jsxs("div", { className: "p-2.5 rounded-lg border border-slate-100 bg-slate-50", children: [
+      /* @__PURE__ */ jsx("p", { className: "text-xs font-semibold text-slate-800", children: task.task }),
+      /* @__PURE__ */ jsxs("div", { className: "mt-1 flex items-center justify-between text-[10px] text-slate-500", children: [
+        /* @__PURE__ */ jsxs("span", { children: [
+          "Status: ",
+          task.status
+        ] }),
+        /* @__PURE__ */ jsxs("span", { children: [
+          "Due: ",
+          task.dueDate || "N/A"
+        ] })
+      ] })
+    ] }, task.id)) })
+  ] });
+};
 const SpecializedNotes = ({ student, onAddActivity }) => {
   const [note, setNote] = useState("");
   const [notes, setNotes] = useState([]);
@@ -66,12 +97,12 @@ const SpecializedNotes = ({ student, onAddActivity }) => {
     setNote("");
     if (onAddActivity) {
       onAddActivity({
-        user: "Counselor",
-        // Mock
         role: "Counselor",
         action: "added specialized note",
         target: student.name,
-        type: "system"
+        type: "system",
+        studentName: student.name,
+        studentId: student.id
       });
     }
   };
@@ -105,9 +136,10 @@ const SpecializedNotes = ({ student, onAddActivity }) => {
     ] })
   ] });
 };
-const StudentHistory = ({ activities, student }) => {
+const StudentHistory = ({ activities, student, assignedCounselorName = "" }) => {
+  const genericLabels = new Set(["Counselor", "Manager", "Team Lead", "Admin", "Student", "System"]);
   const studentActivities = activities.filter(
-    (a) => a.target.includes(student.name) || a.user === student.name || student.documents?.some((d) => a.target.includes(d.name)) || a.target.includes(student.id) || a.action === "added specialized note" && a.target === student.name
+    (a) => a.studentId === student.id || a.studentName === student.name || a.target.includes(student.name) || a.user === student.name || student.documents?.some((d) => a.target.includes(d.name)) || a.target.includes(student.id) || a.action === "added specialized note" && a.target === student.name
   );
   return /* @__PURE__ */ jsxs("div", { className: "bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden", children: [
     /* @__PURE__ */ jsxs("div", { className: "p-4 border-b border-gray-100 flex justify-between items-center bg-slate-50/50", children: [
@@ -130,10 +162,16 @@ const StudentHistory = ({ activities, student }) => {
         /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500 mt-1 truncate", children: activity.target }),
         /* @__PURE__ */ jsxs("p", { className: "text-[10px] text-slate-400 mt-1 font-medium", children: [
           "By ",
-          activity.user,
+          !genericLabels.has(String(activity.actorName || "").trim()) ? activity.actorName || activity.user : assignedCounselorName || activity.actorName || activity.user,
           " (",
           activity.role,
           ")"
+        ] }),
+        /* @__PURE__ */ jsxs("p", { className: "text-[10px] text-slate-500 mt-1", children: [
+          "Counselor: ",
+          activity.counselorName && !genericLabels.has(String(activity.counselorName || "").trim()) ? activity.counselorName : assignedCounselorName || (activity.role === "Counselor" ? activity.actorName || activity.user || "N/A" : "N/A"),
+          " | Student: ",
+          activity.studentName || student.name
         ] })
       ] })
     ] }) }, activity.id)) : /* @__PURE__ */ jsxs("div", { className: "p-8 text-center", children: [
@@ -156,7 +194,9 @@ const StudentProfile = ({
   activities = [],
   invoices = [],
   onUpdateInvoice,
-  onCreateInvoice
+  onCreateInvoice,
+  onUploadStudentDocument,
+  employees = []
 }) => {
   const [localStudent, setLocalStudent] = useState(student);
   const [activeTab, setActiveTab] = useState("pipeline");
@@ -165,6 +205,10 @@ const StudentProfile = ({
   }, [student]);
   const currentStepIndex = PIPELINE_STEPS.indexOf(localStudent.status);
   const nextStep = PIPELINE_STEPS[currentStepIndex + 1];
+  const assignedCounselorName = (() => {
+    const match = employees.find((employee) => employee.id === localStudent.counselor);
+    return match?.name || match?.username || localStudent.counselorName || "";
+  })();
   const handleUpdateStudentLocal = (updated) => {
     if (updated.country !== localStudent.country) {
       const archivedVisa = {
@@ -179,7 +223,9 @@ const StudentProfile = ({
         role: userRole,
         action: "reconfigured Visa Pilot",
         target: `Destination changed from ${localStudent.country} to ${updated.country}. Old progress archived.`,
-        type: "system"
+        type: "system",
+        studentName: localStudent.name,
+        studentId: localStudent.id
       });
     }
     setLocalStudent(updated);
@@ -229,7 +275,9 @@ const StudentProfile = ({
         role: userRole,
         action: allMissingItems.length > 0 ? "advanced pipeline with SLA violation" : "moved pipeline to",
         target: `${nextStep} (${localStudent.name})`,
-        type: allMissingItems.length > 0 ? "system" : "approval"
+        type: allMissingItems.length > 0 ? "system" : "approval",
+        studentName: localStudent.name,
+        studentId: localStudent.id
       });
     }
   };
@@ -250,14 +298,18 @@ const StudentProfile = ({
       case "pipeline":
         return /* @__PURE__ */ jsx(DocumentManager, { student: localStudent, userRole, onUpdateDocument: (doc) => {
           const updatedDocs = localStudent.documents?.map((d) => d.id === doc.id ? doc : d) || [];
-          onUpdateStudent?.({ ...localStudent, documents: updatedDocs });
+          const updatedStudent = { ...localStudent, documents: updatedDocs };
+          setLocalStudent(updatedStudent);
+          onUpdateStudent?.(updatedStudent);
           if (doc.status === "Rejected") {
             onAddActivity?.({
               user: userRole,
               role: userRole,
               action: "rejected document",
               target: `${doc.name} (Reason: ${doc.rejectionReason})`,
-              type: "system"
+              type: "system",
+              studentName: localStudent.name,
+              studentId: localStudent.id
             });
           } else if (doc.status === "Verified") {
             onAddActivity?.({
@@ -265,13 +317,12 @@ const StudentProfile = ({
               role: userRole,
               action: "verified document",
               target: `${doc.name}`,
-              type: "approval"
+              type: "approval",
+              studentName: localStudent.name,
+              studentId: localStudent.id
             });
           }
-        }, onAddDocument: (doc) => {
-          const updatedDocs = [...localStudent.documents || [], doc];
-          onUpdateStudent?.({ ...localStudent, documents: updatedDocs });
-        }, tasks, onUpdateTasks });
+        }, tasks, onUpdateTasks, onUploadDocument: onUploadStudentDocument });
       case "show-money":
         return /* @__PURE__ */ jsx(FinancialCalculator, { student: localStudent });
       case "visa-pilot":
@@ -280,6 +331,25 @@ const StudentProfile = ({
         return /* @__PURE__ */ jsx(FinanceModule, { student: localStudent, invoices, userRole, onUpdateInvoice, onCreateInvoice });
       case "resume":
         return /* @__PURE__ */ jsxs("div", { className: "space-y-6", children: [
+          localStudent.cvFile ? /* @__PURE__ */ jsxs("div", { className: "bg-white border border-emerald-200 rounded-xl p-5 flex items-center justify-between", children: [
+            /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
+              /* @__PURE__ */ jsx("div", { className: "h-10 w-10 rounded-lg bg-emerald-600 text-white flex items-center justify-center", children: /* @__PURE__ */ jsx(FileText, { size: 18 }) }),
+              /* @__PURE__ */ jsxs("div", { children: [
+                /* @__PURE__ */ jsx("p", { className: "text-sm font-semibold text-slate-900", children: localStudent.cvFile.name || "Uploaded CV" }),
+                /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Student uploaded CV (Update Old CV)" })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs("div", { className: "flex gap-2", children: [
+              /* @__PURE__ */ jsx("a", { href: localStudent.cvFile.url, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "outline", className: "flex items-center gap-2", children: [
+                /* @__PURE__ */ jsx(Eye, { size: 16 }),
+                " View"
+              ] }) }),
+              /* @__PURE__ */ jsx("a", { href: localStudent.cvFile.url, target: "_blank", rel: "noopener noreferrer", children: /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "outline", className: "flex items-center gap-2", children: [
+                /* @__PURE__ */ jsx(Download, { size: 16 }),
+                " Download"
+              ] }) })
+            ] })
+          ] }) : null,
           /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between", children: [
             /* @__PURE__ */ jsx("h3", { className: "text-lg font-bold text-slate-900", children: "AI-Optimized Resume" }),
             localStudent.generatedCV && /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "outline", className: "flex items-center gap-2", children: [
@@ -447,8 +517,9 @@ const StudentProfile = ({
             /* @__PURE__ */ jsx("div", { className: "p-6 bg-white border-l border-r border-b border-gray-200 rounded-b-xl flex-1 overflow-y-auto", children: renderContent() })
           ] }),
           /* @__PURE__ */ jsxs("div", { className: "col-span-12 lg:col-span-4 space-y-6", children: [
+            /* @__PURE__ */ jsx(StudentTasksPanel, { student: localStudent, tasks, userRole }),
             /* @__PURE__ */ jsx(KeyDetails, { student: localStudent }),
-            /* @__PURE__ */ jsx(StudentHistory, { activities, student: localStudent }),
+            /* @__PURE__ */ jsx(StudentHistory, { activities, student: localStudent, assignedCounselorName }),
             /* @__PURE__ */ jsx(SpecializedNotes, { student: localStudent, onAddActivity })
           ] })
         ] })

@@ -3,9 +3,9 @@ import { Clock, Users, CheckCircle, ArrowRight, CheckSquare } from "lucide-react
 import { Button } from "./Button";
 import { BarChart, Bar, ResponsiveContainer, XAxis } from "recharts";
 import { LeaderboardWidget } from "./LeaderboardWidget";
-const CounselorDashboard = ({ onNavigate, tasks, currentUser, students, onSelectStudent, onSelectTask }) => {
+const CounselorDashboard = ({ onNavigate, tasks, currentUser, students, allStudents = students, employees = [], onSelectStudent, onSelectTask }) => {
   const counselorId = currentUser?.id || "EMP002";
-  const myStudents = students.filter((s) => s.counselor === counselorId);
+  const myStudents = students;
   const myTasks = tasks.filter((t) => t.assigned_to.includes(counselorId));
   const overdueTasksCount = myTasks.filter((t) => t.status === "Overdue").length;
   const totalUnresolvedViolations = myStudents.reduce((acc, s) => {
@@ -147,7 +147,7 @@ const CounselorDashboard = ({ onNavigate, tasks, currentUser, students, onSelect
         ] })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "space-y-6", children: [
-        /* @__PURE__ */ jsx(LeaderboardWidget, {}),
+        /* @__PURE__ */ jsx(LeaderboardWidget, { students: allStudents, employees, currentUserId: currentUser?.id || "", currentUserEmail: currentUser?.email || "" }),
         /* @__PURE__ */ jsxs("div", { className: "bg-[#0F172A] p-6 rounded-xl shadow-lg text-white", children: [
           /* @__PURE__ */ jsx("h4", { className: "text-slate-400 text-xs font-bold uppercase tracking-wider mb-4", children: "Pipeline Health" }),
           /* @__PURE__ */ jsxs("div", { className: "space-y-4", children: [

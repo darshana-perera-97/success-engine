@@ -72,7 +72,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClos
   const showRelatedStudent = !student; // Hide if student context is provided
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-10 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl border border-gray-100 scale-100 animate-in zoom-in-95 duration-200 mx-4 relative">
         <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
             <div>

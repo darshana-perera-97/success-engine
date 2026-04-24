@@ -1,10 +1,13 @@
 import { jsx, jsxs } from "react/jsx-runtime";
 import { Trophy, Medal, TrendingUp, Star, Crown } from "lucide-react";
 import { STUDENTS, EMPLOYEES } from "../constants";
-const LeaderboardWidget = () => {
-  const counselors = EMPLOYEES.filter((e) => e.role.includes("Counsel") || e.role.includes("Team Lead"));
+const LeaderboardWidget = ({ students = STUDENTS, employees = EMPLOYEES, currentUserId = "", currentUserEmail = "" }) => {
+  const counselors = employees.filter((employee) => {
+    const role = String(employee.role || "").toLowerCase();
+    return role === "counselor" || role === "consultor";
+  });
   const leaderboard = counselors.map((counselor) => {
-    const myStudents = STUDENTS.filter((s) => s.counselor === counselor.id);
+    const myStudents = students.filter((student) => student.counselor === counselor.id);
     let score = 0;
     let visas = 0;
     myStudents.forEach((s) => {
@@ -21,9 +24,11 @@ const LeaderboardWidget = () => {
       visas,
       activeCount: myStudents.length
     };
-  }).sort((a, b) => b.score - a.score);
+  }).sort((a, b) => b.score - a.score || b.visas - a.visas || b.activeCount - a.activeCount);
   const top3 = leaderboard.slice(0, 3);
-  const currentUserRank = leaderboard.findIndex((c) => c.id === "EMP002") + 1;
+  const currentUserRank = leaderboard.findIndex(
+    (c) => String(c.id || "") === String(currentUserId || "") || String(c.email || "").toLowerCase() === String(currentUserEmail || "").toLowerCase()
+  ) + 1;
   return /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden", children: [
     /* @__PURE__ */ jsxs("div", { className: "bg-[#0F172A] p-4 text-white flex justify-between items-center", children: [
       /* @__PURE__ */ jsxs("div", { children: [
@@ -57,7 +62,7 @@ const LeaderboardWidget = () => {
       return /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3 p-3 border-b last:border-0 border-gray-50 hover:bg-slate-50 transition-colors rounded-lg", children: [
         /* @__PURE__ */ jsx("div", { className: `w-8 h-8 rounded-full flex items-center justify-center border ${medalColor} font-bold text-xs shadow-sm`, children: idx === 0 ? /* @__PURE__ */ jsx(Icon, { size: 14, fill: "currentColor" }) : idx + 1 }),
         /* @__PURE__ */ jsxs("div", { className: "flex-1 min-w-0", children: [
-          /* @__PURE__ */ jsx("p", { className: `text-sm font-semibold truncate ${idx === 0 ? "text-slate-900" : "text-slate-700"}`, children: agent.name }),
+          /* @__PURE__ */ jsx("p", { className: `text-sm font-semibold truncate ${idx === 0 ? "text-slate-900" : "text-slate-700"}`, children: agent.name || agent.username || agent.email || "Counselor" }),
           /* @__PURE__ */ jsxs("p", { className: "text-[10px] text-slate-400 flex items-center gap-2", children: [
             /* @__PURE__ */ jsxs("span", { children: [
               agent.score,
@@ -67,6 +72,11 @@ const LeaderboardWidget = () => {
             /* @__PURE__ */ jsxs("span", { children: [
               agent.visas,
               " Visas"
+            ] }),
+            /* @__PURE__ */ jsx("span", { children: "\u2022" }),
+            /* @__PURE__ */ jsxs("span", { children: [
+              agent.activeCount,
+              " Students"
             ] })
           ] })
         ] }),
@@ -76,7 +86,6 @@ const LeaderboardWidget = () => {
         ] })
       ] }, agent.id);
     }) }),
-    /* @__PURE__ */ jsx("div", { className: "bg-gray-50 p-2 text-center border-t border-gray-100", children: /* @__PURE__ */ jsx("button", { className: "text-xs text-indigo-600 font-medium hover:underline", children: "View Full Rankings" }) })
   ] });
 };
 export {

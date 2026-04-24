@@ -13,14 +13,40 @@ const TaskManager = ({
   currentUser,
   selectedTaskId,
   onUpdateTasks,
-  onAddTask
+  onAddTask,
+  monitoredStudents = [],
+  employees = []
 }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const MOCK_COUNSELOR_ID = "EMP002";
+  const normalize = (value) => String(value || "").trim().toLowerCase();
+  const counselorIdentitySet = (() => {
+    if (userRole !== "Counselor") return /* @__PURE__ */ new Set();
+    const set = /* @__PURE__ */ new Set();
+    const add = (value) => {
+      const normalized = normalize(value);
+      if (normalized) set.add(normalized);
+    };
+    add(currentUser?.id);
+    add(currentUser?.email);
+    add(currentUser?.name);
+    return set;
+  })();
+  const monitoredStudentIds = /* @__PURE__ */ new Set(
+    (monitoredStudents || []).map((item) => String(item?.id || "").trim()).filter(Boolean)
+  );
+  const studentLookup = (monitoredStudents && monitoredStudents.length > 0 ? monitoredStudents : STUDENTS).reduce((acc, studentItem) => {
+    acc[String(studentItem?.id || "").trim()] = studentItem;
+    return acc;
+  }, {});
   const filteredTasks = tasks.filter((task) => {
     if (userRole === "Admin") return true;
     if (userRole === "Manager") return task.priority === "High" || task.status === "Overdue" || task.status === "In Review";
-    if (userRole === "Counselor") return task.assigned_to.includes(MOCK_COUNSELOR_ID) || task.isPrivate;
+    if (userRole === "Counselor") {
+      const assignedTo = Array.isArray(task.assigned_to) ? task.assigned_to : [];
+      const isAssigned = assignedTo.some((assignee) => counselorIdentitySet.has(normalize(assignee)));
+      const isMonitoredStudentTask = monitoredStudentIds.has(String(task.student_id || "").trim());
+      return isAssigned || isMonitoredStudentTask;
+    }
     if (userRole === "Student") return task.student_id === student?.id && !task.isPrivate;
     return false;
   });
@@ -68,11 +94,13 @@ const TaskManager = ({
       onUpdateTasks([{ ...task, status: "In Review" }]);
     }
   };
-  const handleCreateTask = (newTask) => {
+  const handleCreateTask = async (newTask) => {
     if (onAddTask) {
-      onAddTask(newTask);
+      const result = await onAddTask(newTask);
+      if (result && result.ok === false) return result;
     }
     setIsCreateModalOpen(false);
+    return { ok: true };
   };
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -105,8 +133,8 @@ const TaskManager = ({
           /* @__PURE__ */ jsx("th", { className: "px-6 py-3 whitespace-nowrap hidden sm:table-cell", children: "Priority" }),
           /* @__PURE__ */ jsx("th", { className: "px-6 py-3 whitespace-nowrap", children: "Status" })
         ] }) }),
-        /* @__PURE__ */ jsx("tbody", { className: "divide-y divide-gray-100", children: studentTasks.map((task) => {
-          const studentContext = STUDENTS.find((s) => s.id === task.student_id);
+        /* @__PURE__ */ jsx("tbody", { className: "divide-y divide-gray-100", children: studentTasks.length === 0 ? /* @__PURE__ */ jsx("tr", { children: /* @__PURE__ */ jsx("td", { colSpan: userRole === "Student" ? 3 : 5, className: "px-6 py-10 text-center text-slate-500", children: "No tasks found." }) }) : studentTasks.map((task) => {
+          const studentContext = studentLookup[String(task.student_id || "").trim()] || STUDENTS.find((s) => s.id === task.student_id);
           const isLocked = userRole === "Student" && (task.phase || 1) > 1 && task.status === "Pending";
           const isTaskCompleted = task.status === "Completed";
           let docStatus = "none";
@@ -179,8 +207,7 @@ const TaskManager = ({
             ] }) })
           ] }, task.id);
         }) })
-      ] }) }),
-      filteredTasks.length === 0 && /* @__PURE__ */ jsx("div", { className: "p-8 text-center text-slate-500", children: "No tasks found." })
+      ] }) })
     ] }),
     /* @__PURE__ */ jsx(
       CreateTaskModal,
@@ -190,7 +217,9 @@ const TaskManager = ({
         onSubmit: handleCreateTask,
         userRole,
         currentUser,
-        student
+        student,
+        students: monitoredStudents && monitoredStudents.length > 0 ? monitoredStudents : STUDENTS,
+        employees
       }
     )
   ] });

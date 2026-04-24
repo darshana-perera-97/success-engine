@@ -203,7 +203,7 @@ export const CalendarScheduler: React.FC<CalendarSchedulerProps> = ({ appointmen
             // Check availability dots
             
             const myAppointmentsDay = appointments.filter(a => {
-                if (currentRole === 'Manager' || currentRole === 'Admin') return a.date === dateStr;
+                if (currentRole === 'Manager' || currentRole === 'Team Lead' || currentRole === 'Admin') return a.date === dateStr;
                 if (currentRole === 'Counselor') return a.date === dateStr && a.counselorId === currentUser.id;
                 return a.date === dateStr && a.studentId === currentUser.id;
             });
@@ -291,7 +291,7 @@ export const CalendarScheduler: React.FC<CalendarSchedulerProps> = ({ appointmen
             {/* Availability Settings Modal */}
             {isSettingsOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md scale-100 animate-in zoom-in-95 overflow-hidden">
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-2xl w-full max-w-md scale-100 animate-in zoom-in-95 overflow-hidden">
                         <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                             <h3 className="font-bold text-slate-900 flex items-center gap-2">
                                 <Settings size={18} /> Availability Settings
@@ -388,7 +388,7 @@ export const CalendarScheduler: React.FC<CalendarSchedulerProps> = ({ appointmen
                 <div className="lg:col-span-8 space-y-6 flex flex-col">
                     
                     {/* Booking Interface (Visible if Date Selected) */}
-                    {selectedDate && currentRole !== 'Manager' && currentRole !== 'Admin' && (
+                    {selectedDate && currentRole !== 'Manager' && currentRole !== 'Team Lead' && currentRole !== 'Admin' && (
                         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-in slide-in-from-left-2">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-900 flex items-center gap-2">
@@ -448,7 +448,7 @@ export const CalendarScheduler: React.FC<CalendarSchedulerProps> = ({ appointmen
                         </div>
                         <div className="divide-y divide-gray-100 overflow-y-auto flex-1 p-0">
                             {appointments.filter(a => {
-                                if (currentRole === 'Manager' || currentRole === 'Admin') return true;
+                                if (currentRole === 'Manager' || currentRole === 'Team Lead' || currentRole === 'Admin') return true;
                                 if (currentRole === 'Counselor') return a.counselorId === currentUser.id;
                                 return a.studentId === currentUser.id;
                             }).sort((a,b) => {
@@ -519,7 +519,7 @@ export const CalendarScheduler: React.FC<CalendarSchedulerProps> = ({ appointmen
             {/* Outcome Modal */}
             {outcomeModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95">
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-2xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95">
                         <h3 className="font-bold text-lg text-slate-900 mb-4">Log Session Outcome</h3>
                         
                         <div className="space-y-4">

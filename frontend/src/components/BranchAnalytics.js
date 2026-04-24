@@ -1,120 +1,317 @@
-import { jsx, jsxs } from "react/jsx-runtime";
-import { STUDENTS } from "../constants";
-import { formatLKR, RATE_UPDATED_AT } from "../utils";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { formatRawLKR, RATE_UPDATED_AT } from "../utils";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { MapPin, TrendingUp, Download, Banknote, Clock } from "lucide-react";
+import { MapPin, TrendingUp, Download, Banknote, Clock, Plus, X } from "lucide-react";
 import { Button } from "./Button";
-const BRANCHES = ["Colombo HQ", "Kandy", "Galle", "Jaffna"];
+import { createBranch, getAccounts, getBranches, getStudents } from "../authApi";
+
 const BranchAnalytics = () => {
-  const branchData = BRANCHES.map((branch) => {
-    const branchStudents = STUDENTS.filter((s) => s.branch === branch);
-    const revenue = branchStudents.reduce((acc, s) => acc + parseFloat(s.budget || "0") * 0.1, 0);
-    const conversions = branchStudents.filter((s) => ["Visa Pilot", "Offer Received"].includes(s.status)).length;
-    return {
-      name: branch,
-      students: branchStudents.length,
-      revenue,
-      conversions,
-      conversionRate: branchStudents.length ? Math.round(conversions / branchStudents.length * 100) : 0
+  const formatRevenueNumber = (value) => {
+    const formatted = formatRawLKR(value);
+    return formatted.replace(/^LKR\s*/, "");
+  };
+  const [branches, setBranches] = useState([]);
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [location, setLocation] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [managerAccounts, setManagerAccounts] = useState([]);
+  const [students, setStudents] = useState([]);
+  const reportRef = useRef(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    const loadBranches = async () => {
+      const result = await getBranches();
+      if (!result.ok) return;
+      setBranches(result.data);
     };
-  });
-  return /* @__PURE__ */ jsxs("div", { className: "space-y-6 animate-in fade-in duration-500 pb-10", children: [
-    /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-end", children: [
-      /* @__PURE__ */ jsxs("div", { children: [
-        /* @__PURE__ */ jsx("h1", { className: "text-2xl font-semibold tracking-tight text-[#0F172A]", children: "Detailed Branch Analytics" }),
-        /* @__PURE__ */ jsx("p", { className: "text-sm text-slate-500 mt-1", children: "Deep dive into regional performance metrics." }),
-        /* @__PURE__ */ jsxs("p", { className: "text-[10px] text-slate-400 flex items-center gap-1 mt-1", children: [
-          /* @__PURE__ */ jsx(Clock, { size: 10 }),
-          " Rates updated: ",
-          RATE_UPDATED_AT
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxs(Button, { variant: "secondary", children: [
-        /* @__PURE__ */ jsx(Download, { size: 16, className: "mr-2" }),
-        " Export Report"
-      ] })
-    ] }),
-    /* @__PURE__ */ jsx("div", { className: "grid grid-cols-1 md:grid-cols-4 gap-4", children: branchData.map((data, idx) => /* @__PURE__ */ jsxs("div", { className: "bg-white p-5 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors", children: [
-      /* @__PURE__ */ jsx("div", { className: `absolute top-0 left-0 w-1 h-full ${idx === 0 ? "bg-indigo-600" : "bg-gray-200"}` }),
-      /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-start mb-2", children: [
-        /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2", children: [
-          /* @__PURE__ */ jsx(MapPin, { size: 16, className: "text-slate-400" }),
-          /* @__PURE__ */ jsx("span", { className: "font-semibold text-slate-700", children: data.name })
-        ] }),
-        idx === 0 && /* @__PURE__ */ jsx("span", { className: "bg-indigo-50 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-bold", children: "TOP PERFORMER" })
-      ] }),
-      /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-2 gap-4 mt-4", children: [
-        /* @__PURE__ */ jsxs("div", { children: [
-          /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-400 uppercase", children: "Revenue" }),
-          /* @__PURE__ */ jsx("p", { className: "text-lg font-bold text-slate-900", children: formatLKR(data.revenue) })
-        ] }),
-        /* @__PURE__ */ jsxs("div", { children: [
-          /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-400 uppercase", children: "Conv. Rate" }),
-          /* @__PURE__ */ jsxs("p", { className: "text-lg font-bold text-emerald-600", children: [
-            data.conversionRate,
-            "%"
-          ] })
-        ] })
-      ] })
-    ] }, data.name)) }),
-    /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6", children: [
-      /* @__PURE__ */ jsxs("div", { className: "lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm min-h-[400px]", children: [
-        /* @__PURE__ */ jsxs("h3", { className: "text-sm font-bold text-slate-900 mb-6 flex items-center", children: [
-          /* @__PURE__ */ jsx(TrendingUp, { size: 16, className: "mr-2 text-slate-400" }),
-          "Regional Conversion Performance"
-        ] }),
-        /* @__PURE__ */ jsx("div", { className: "h-[300px] w-full", children: /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(BarChart, { data: branchData, barSize: 40, children: [
-          /* @__PURE__ */ jsx(XAxis, { dataKey: "name", axisLine: false, tickLine: false, tick: { fill: "#64748B", fontSize: 12 }, dy: 10 }),
-          /* @__PURE__ */ jsx(YAxis, { axisLine: false, tickLine: false, tick: { fill: "#64748B", fontSize: 12 } }),
-          /* @__PURE__ */ jsx(Tooltip, { cursor: { fill: "#F8FAFC" }, contentStyle: { borderRadius: "8px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" } }),
-          /* @__PURE__ */ jsx(Bar, { dataKey: "students", name: "Total Inquiries", fill: "#E2E8F0", radius: [4, 4, 0, 0] }),
-          /* @__PURE__ */ jsx(Bar, { dataKey: "conversions", name: "Successes", fill: "#0F172A", radius: [4, 4, 0, 0] })
-        ] }) }) })
-      ] }),
-      /* @__PURE__ */ jsxs("div", { className: "bg-white p-6 rounded-xl border border-gray-200 shadow-sm", children: [
-        /* @__PURE__ */ jsxs("h3", { className: "text-sm font-bold text-slate-900 mb-4 flex items-center", children: [
-          /* @__PURE__ */ jsx(Banknote, { size: 16, className: "mr-2 text-slate-400" }),
-          "Revenue Efficiency"
-        ] }),
-        /* @__PURE__ */ jsx("div", { className: "space-y-4", children: branchData.sort((a, b) => b.revenue - a.revenue).map((data, idx) => /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-4", children: [
-          /* @__PURE__ */ jsx("div", { className: "text-xs font-mono text-slate-400 w-4", children: idx + 1 }),
-          /* @__PURE__ */ jsxs("div", { className: "flex-1", children: [
-            /* @__PURE__ */ jsxs("div", { className: "flex justify-between mb-1", children: [
-              /* @__PURE__ */ jsx("span", { className: "text-sm font-medium text-slate-700", children: data.name }),
-              /* @__PURE__ */ jsx("span", { className: "text-sm font-bold text-slate-900", children: formatLKR(data.revenue) })
-            ] }),
-            /* @__PURE__ */ jsx("div", { className: "w-full bg-gray-100 rounded-full h-1.5", children: /* @__PURE__ */ jsx(
-              "div",
-              {
-                className: "bg-emerald-500 h-1.5 rounded-full",
-                style: { width: `${data.revenue / 2e5 * 100}%` }
-              }
-            ) })
-          ] })
-        ] }, data.name)) }),
-        /* @__PURE__ */ jsxs("div", { className: "mt-8 pt-6 border-t border-gray-100", children: [
-          /* @__PURE__ */ jsx("h4", { className: "text-xs font-bold text-slate-400 uppercase mb-3", children: "Branch Managers" }),
-          /* @__PURE__ */ jsxs("div", { className: "space-y-3", children: [
-            /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
-              /* @__PURE__ */ jsx("div", { className: "w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold", children: "J" }),
-              /* @__PURE__ */ jsxs("div", { children: [
-                /* @__PURE__ */ jsx("p", { className: "text-sm font-medium text-slate-900", children: "John Doe" }),
-                /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Colombo HQ" })
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
-              /* @__PURE__ */ jsx("div", { className: "w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold", children: "D" }),
-              /* @__PURE__ */ jsxs("div", { children: [
-                /* @__PURE__ */ jsx("p", { className: "text-sm font-medium text-slate-900", children: "Devinda K." }),
-                /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Kandy" })
-              ] })
-            ] })
-          ] })
-        ] })
-      ] })
-    ] })
-  ] });
+    loadBranches();
+  }, []);
+
+  useEffect(() => {
+    const loadManagers = async () => {
+      const result = await getAccounts();
+      if (!result.ok) return;
+      const managers = result.data.filter((acc) => acc.role === "Manager" && acc.branch);
+      setManagerAccounts(managers);
+    };
+    loadManagers();
+  }, []);
+
+  useEffect(() => {
+    const loadStudents = async () => {
+      const result = await getStudents();
+      if (!result.ok) return;
+      setStudents(result.data);
+    };
+    loadStudents();
+  }, []);
+
+  const successfulStatuses = useMemo(
+    () => new Set(["Uni Application", "Offer Received", "Visa Pilot"]),
+    []
+  );
+
+  const branchData = useMemo(
+    () =>
+      branches.map((branch) => {
+        const branchStudents = students.filter(
+          (student) => String(student.branch || "").trim().toLowerCase() === String(branch.location || "").trim().toLowerCase()
+        );
+        const studentsCount = branchStudents.length;
+        const conversionsCount = branchStudents.filter((student) => successfulStatuses.has(String(student.status || ""))).length;
+        const liveRevenue = branchStudents.reduce((sum, student) => {
+          const numericBudget = Number(String(student.budget || "").replace(/[^\d.]/g, ""));
+          return Number.isFinite(numericBudget) ? sum + numericBudget : sum;
+        }, 0);
+        const revenue = liveRevenue > 0 ? liveRevenue : branch.revenue || 0;
+        return {
+          name: branch.location,
+          students: studentsCount,
+          revenue,
+          conversions: conversionsCount,
+          conversionRate: studentsCount ? Math.round((conversionsCount / studentsCount) * 100) : 0
+        };
+      }),
+    [branches, students, successfulStatuses]
+  );
+  const totalRevenue = useMemo(
+    () => branchData.reduce((sum, branch) => sum + branch.revenue, 0),
+    [branchData]
+  );
+  const revenueRankedData = useMemo(
+    () =>
+      [...branchData].sort((a, b) => b.revenue - a.revenue).map((branch) => ({
+        ...branch,
+        revenueShare: totalRevenue > 0 ? branch.revenue / totalRevenue * 100 : 0
+      })),
+    [branchData, totalRevenue]
+  );
+  const cardRankedData = useMemo(
+    () => [...branchData].sort((a, b) => b.revenue - a.revenue),
+    [branchData]
+  );
+
+  const handleExportReport = async () => {
+    if (!reportRef.current) return;
+    try {
+      setIsExporting(true);
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf")
+      ]);
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2,
+        backgroundColor: "#f9fafb",
+        useCORS: true
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      pdf.save(`branch-analytics-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  return (
+    <>
+      <div ref={reportRef} className="space-y-6 animate-in fade-in duration-500 pb-10">
+        <div className="flex justify-between items-end">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-[#0F172A]">Detailed Branch Analytics</h1>
+            <p className="text-sm text-slate-500 mt-1">Deep dive into regional performance metrics from live student and branch records.</p>
+            <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-1">
+              <Clock size={10} /> Rates updated: {RATE_UPDATED_AT}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setIsAddOpen(true)}>
+              <Plus size={16} className="mr-2" /> Add Branch
+            </Button>
+            <Button variant="secondary" onClick={handleExportReport} isLoading={isExporting}>
+              <Download size={16} className="mr-2" /> Export Report
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {cardRankedData.map((data, idx) => (
+            <div
+              key={data.name}
+              className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors"
+            >
+              <div className={`absolute top-0 left-0 w-1 h-full ${idx === 0 ? "bg-indigo-600" : "bg-gray-200"}`} />
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-2">
+                  <MapPin size={16} className="text-slate-400" />
+                  <span className="font-semibold text-slate-700">{data.name}</span>
+                </div>
+                {idx === 0 && (
+                  <span className="bg-indigo-50 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                    TOP PERFORMER
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <p className="text-xs text-slate-400 uppercase">Revenue (LKR)</p>
+                  <p className="text-lg font-bold text-slate-900">{formatRevenueNumber(data.revenue)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 uppercase">Conv. Rate</p>
+                  <p className="text-lg font-bold text-emerald-600">{data.conversionRate}%</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm min-h-[400px]">
+            <h3 className="text-sm font-bold text-slate-900 mb-6 flex items-center">
+              <TrendingUp size={16} className="mr-2 text-slate-400" />
+              Regional Conversion Performance
+            </h3>
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={branchData} barSize={40}>
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#64748B", fontSize: 12 }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#64748B", fontSize: 12 }} />
+                  <Tooltip
+                    cursor={{ fill: "#F8FAFC" }}
+                    contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
+                  />
+                  <Bar dataKey="students" name="Total Inquiries" fill="#E2E8F0" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="conversions" name="Successes" fill="#0F172A" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center">
+              <Banknote size={16} className="mr-2 text-slate-400" />
+              Revenue Efficiency
+            </h3>
+            <div className="space-y-4">
+              {revenueRankedData.map((data, idx) => (
+                <div key={data.name} className="flex items-center gap-4">
+                  <div className="text-xs font-mono text-slate-400 w-4">{idx + 1}</div>
+                  <div className="flex-1">
+                    <div className="flex justify-between mb-1">
+                      <span className="text-sm font-medium text-slate-700">{data.name}</span>
+                      <div className="text-right">
+                        <span className="text-sm font-bold text-slate-900">{formatRawLKR(data.revenue)}</span>
+                        <p className="text-[11px] text-slate-500">{data.revenueShare.toFixed(1)}% of total</p>
+                      </div>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.max(3, data.revenueShare)}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-gray-100">
+              <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Branch Managers</h4>
+              <div className="space-y-3">
+                {managerAccounts.length > 0 ? (
+                  managerAccounts.map((manager, idx) => (
+                    <div key={manager.id} className="flex items-center gap-3">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                          idx % 2 === 0 ? "bg-slate-200 text-slate-700" : "bg-indigo-100 text-indigo-700"
+                        }`}
+                      >
+                        {String(manager.username || "M").charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{manager.username}</p>
+                        <p className="text-xs text-slate-500">{manager.branch}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500">No manager accounts found.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {isAddOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-white rounded-xl border border-gray-100 shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/60 flex items-start justify-between">
+              <div>
+                <h3 className="font-semibold text-lg text-slate-900">Add Branch</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Add a new branch location.</p>
+              </div>
+              <button type="button" className="text-slate-400 hover:text-slate-600" onClick={() => setIsAddOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <form
+              className="p-5 space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setError("");
+                setIsSaving(true);
+                const result = await createBranch(location.trim());
+                setIsSaving(false);
+                if (!result.ok) {
+                  setError(result.error);
+                  return;
+                }
+                setBranches((prev) => [...prev, result.data]);
+                setLocation("");
+                setIsAddOpen(false);
+              }}
+            >
+              {error ? <p className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-md px-3 py-2">{error}</p> : null}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-700">Branch Location</label>
+                <input
+                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="e.g. Matara"
+                  required
+                />
+              </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={() => setIsAddOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" isLoading={isSaving}>
+                  Save Branch
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
+  );
 };
-export {
-  BranchAnalytics
-};
+
+export { BranchAnalytics };

@@ -19,7 +19,8 @@ import {
   Calendar,
   UserCog,
   Menu,
-  X
+  X,
+  Contact
 } from 'lucide-react';
 import { UserRole } from '../types';
 
@@ -29,9 +30,11 @@ interface LayoutProps {
   onNavigate: (view: string) => void;
   currentRole: UserRole;
   onRoleChange: (role: UserRole) => void;
+  onLogout?: () => void;
+  userAvatar?: string;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate, currentRole, onRoleChange }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate, currentRole, onRoleChange, onLogout, userAvatar }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Dynamic Navigation based on Role
@@ -44,7 +47,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate
           { id: 'calendar', label: 'Book Session', icon: <Calendar size={20} /> }, 
           { id: 'finance', label: 'My Finances', icon: <DollarSign size={20} /> },
           { id: 'messages', label: 'Messages', icon: <MessageSquare size={20} />, badge: '1' },
-          { id: 'tasks', label: 'My Checklist', icon: <CheckSquare size={20} />, badge: '2' },
+          { id: 'tasks', label: 'My Checklist', icon: <CheckSquare size={20} /> },
         ];
       case 'Counselor':
         return [
@@ -66,6 +69,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate
           { id: 'messages', label: 'Live Ops (Ghost)', icon: <MessageSquare size={20} /> },
           { id: 'tasks', label: 'Escalations', icon: <CheckSquare size={20} />, badge: '3' },
         ];
+      case 'Team Lead':
+        return [
+          { id: 'dashboard', label: 'Command Center', icon: <LayoutDashboard size={20} /> },
+          { id: 'counselors', label: 'Counselors', icon: <UserCog size={20} /> }, 
+          { id: 'calendar', label: 'Team Calendar', icon: <Calendar size={20} /> }, 
+          { id: 'students', label: 'All Students', icon: <Users size={20} /> },
+          { id: 'university', label: 'Uni Database', icon: <Globe size={20} /> },
+          { id: 'messages', label: 'Live Ops (Ghost)', icon: <MessageSquare size={20} /> },
+          { id: 'tasks', label: 'Escalations', icon: <CheckSquare size={20} />, badge: '3' },
+        ];
       case 'Admin':
       default:
         return [
@@ -73,6 +86,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate
           { id: 'counselors', label: 'Counselors', icon: <UserCog size={20} /> }, 
           { id: 'branch', label: 'Branch Analytics', icon: <BarChart3 size={20} /> },
           { id: 'students', label: 'All Students', icon: <Users size={20} /> },
+          { id: 'accounts', label: 'Accounts', icon: <Contact size={20} /> },
           { id: 'university', label: 'Uni Database', icon: <Globe size={20} /> },
           { id: 'messages', label: 'Omni-Channel', icon: <MessageSquare size={20} /> },
         ];
@@ -134,20 +148,25 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate
         </div>
 
         <div className="p-4 border-t border-gray-100">
-          <NavItem 
-            icon={<Settings size={20} />} 
-            label="Settings" 
-            isActive={activeView === 'settings'} 
-            onClick={() => {
-                onNavigate('settings');
-                setIsMobileMenuOpen(false);
-            }}
-          />
+          {currentRole === 'Admin' && (
+            <NavItem 
+              icon={<Settings size={20} />} 
+              label="Settings" 
+              isActive={activeView === 'settings'} 
+              onClick={() => {
+                  onNavigate('settings');
+                  setIsMobileMenuOpen(false);
+              }}
+            />
+          )}
           <NavItem 
             icon={<LogOut size={20} />} 
             label="Logout" 
             isActive={false} 
-            onClick={() => {}}
+            onClick={() => {
+              onLogout?.();
+              setIsMobileMenuOpen(false);
+            }}
             className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
           />
         </div>
@@ -187,17 +206,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate
         </div>
 
         <div className="p-4 border-t border-gray-100">
-          <NavItem 
-            icon={<Settings size={20} />} 
-            label="Settings" 
-            isActive={activeView === 'settings'} 
-            onClick={() => onNavigate('settings')}
-          />
+          {currentRole === 'Admin' && (
+            <NavItem 
+              icon={<Settings size={20} />} 
+              label="Settings" 
+              isActive={activeView === 'settings'} 
+              onClick={() => onNavigate('settings')}
+            />
+          )}
           <NavItem 
             icon={<LogOut size={20} />} 
             label="Logout" 
             isActive={false} 
-            onClick={() => {}}
+            onClick={() => onLogout?.()}
             className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
           />
         </div>
@@ -242,7 +263,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate
                 <button className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all">
                     <div className="h-8 w-8 rounded-full border-2 border-white shadow-sm ring-1 ring-gray-100 overflow-hidden flex items-center justify-center bg-white">
                         <img 
-                            src="/canadian.png" 
+                            src={userAvatar || '/canadian.png'} 
                             alt="User Role" 
                             className="w-full h-full object-cover"
                             referrerPolicy="no-referrer"
@@ -260,6 +281,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, onNavigate
                         <RoleOption role="Student" current={currentRole} onClick={onRoleChange} icon={<UserCircle size={14} />} />
                         <RoleOption role="Counselor" current={currentRole} onClick={onRoleChange} icon={<Briefcase size={14} />} />
                         <RoleOption role="Manager" current={currentRole} onClick={onRoleChange} icon={<BarChart3 size={14} />} />
+                        <RoleOption role="Team Lead" current={currentRole} onClick={onRoleChange} icon={<UserCog size={14} />} />
                         <RoleOption role="Admin" current={currentRole} onClick={onRoleChange} icon={<Shield size={14} />} />
                     </div>
                 </div>

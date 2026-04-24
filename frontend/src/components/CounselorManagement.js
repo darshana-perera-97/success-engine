@@ -1,6 +1,7 @@
 import { jsx, jsxs } from "react/jsx-runtime";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { formatLKR } from "../utils";
+import { getAccounts, getBranches, updateCounselorTeamLead } from "../authApi";
 import {
   Users,
   TrendingUp,
@@ -9,7 +10,6 @@ import {
   Search,
   ArrowRight,
   ArrowLeft,
-  Star,
   DollarSign,
   Briefcase,
   ThumbsUp,
@@ -20,7 +20,9 @@ import {
   Plus,
   Mail,
   MapPin,
-  Phone
+  Phone,
+  KeyRound,
+  UserCog
 } from "lucide-react";
 import { Button } from "./Button";
 import {
@@ -32,17 +34,58 @@ import {
   AreaChart,
   Area
 } from "recharts";
-const CounselorManagement = ({ students, employees, tasks, onTransferStudents, onAddActivity }) => {
+const CounselorManagement = ({ students, employees, tasks, onTransferStudents, onAddActivity, onAddCounselor, currentRole, authenticatedUserEmail = "" }) => {
   const [selectedCounselorId, setSelectedCounselorId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAssignLeadModalOpen, setIsAssignLeadModalOpen] = useState(false);
+  const [isAddingCounselor, setIsAddingCounselor] = useState(false);
+  const [isUpdatingTeamLead, setIsUpdatingTeamLead] = useState(false);
+  const [addCounselorError, setAddCounselorError] = useState("");
+  const [assignLeadError, setAssignLeadError] = useState("");
+  const [branchOptions, setBranchOptions] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [targetCounselorId, setTargetCounselorId] = useState("");
-  const [newCounselor, setNewCounselor] = useState({ name: "", email: "", branch: "Colombo HQ", role: "Senior Counselor", phone: "" });
-  const handleAddCounselor = (e) => {
+  const [selectedCounselorForLead, setSelectedCounselorForLead] = useState(null);
+  const [selectedTeamLeadId, setSelectedTeamLeadId] = useState("");
+  const [newCounselor, setNewCounselor] = useState({ name: "", email: "", branch: "", role: "Senior Counselor", phone: "", password: "", teamLeadId: "" });
+  const teamLeadOptions = useMemo(() => accounts.filter((a) => String(a.role || "") === "Team Lead"), [accounts]);
+  useEffect(() => {
+    const loadAccounts = async () => {
+      const result = await getAccounts();
+      if (!result.ok) return;
+      setAccounts(result.data);
+      const teamLeads = result.data.filter((row) => String(row.role || "") === "Team Lead");
+      if (teamLeads.length > 0) {
+        setNewCounselor((prev) => prev.teamLeadId ? prev : { ...prev, teamLeadId: teamLeads[0].id });
+      }
+    };
+    loadAccounts();
+  }, []);
+  useEffect(() => {
+    const loadBranches = async () => {
+      const result = await getBranches();
+      if (!result.ok) return;
+      const locations = result.data.map((b) => String(b.location || "").trim()).filter(Boolean);
+      setBranchOptions(locations);
+      if (locations.length > 0) {
+        setNewCounselor((prev) => ({ ...prev, branch: locations[0] }));
+      }
+    };
+    loadBranches();
+  }, []);
+  const handleAddCounselor = async (e) => {
     e.preventDefault();
-    if (!newCounselor.name || !newCounselor.email) return;
-    console.log("Adding counselor:", newCounselor);
+    if (!newCounselor.name || !newCounselor.email || !newCounselor.branch || !newCounselor.password || !newCounselor.teamLeadId) return;
+    setAddCounselorError("");
+    setIsAddingCounselor(true);
+    const result = onAddCounselor ? await onAddCounselor(newCounselor) : { ok: true };
+    setIsAddingCounselor(false);
+    if (!result?.ok) {
+      setAddCounselorError(result?.error || "Failed to add counselor.");
+      return;
+    }
     if (onAddActivity) {
       onAddActivity({
         user: "Manager",
@@ -53,13 +96,37 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
       });
     }
     setIsAddModalOpen(false);
-    setNewCounselor({ name: "", email: "", branch: "Colombo HQ", role: "Senior Counselor", phone: "" });
-    alert("Counselor added successfully!");
+    if (result?.data) {
+      setAccounts((prev) => [result.data, ...prev]);
+    }
+    setNewCounselor({
+      name: "",
+      email: "",
+      branch: branchOptions[0] || "",
+      role: "Senior Counselor",
+      phone: "",
+      password: "",
+      teamLeadId: teamLeadOptions[0]?.id || ""
+    });
+    setAddCounselorError("");
   };
   const counselors = useMemo(() => {
-    return employees.filter((e) => e.role.includes("Counsel") || e.role.includes("Team Lead")).map((emp) => {
-      const myStudents = students.filter((s) => s.counselor === emp.id);
-      const myTasks = tasks.filter((t) => t.assigned_to.includes(emp.id));
+    const normalizedAuthEmail = String(authenticatedUserEmail || "").toLowerCase();
+    const loggedTeamLeadAccount = currentRole === "Team Lead" ? accounts.find(
+      (a) => String(a.role || "") === "Team Lead" && String(a.email || "").toLowerCase() === normalizedAuthEmail
+    ) : null;
+    return accounts.filter((a) => {
+      const role = String(a.role || "").toLowerCase();
+      const isCounselor = role === "consultor" || role === "counselor";
+      if (!isCounselor) return false;
+      if (currentRole !== "Team Lead") return true;
+      if (!loggedTeamLeadAccount) return false;
+      return String(a.teamLeadId || "") === String(loggedTeamLeadAccount.id || "") || String(a.teamLeadEmail || "").toLowerCase() === normalizedAuthEmail;
+    }).map((account) => {
+      const linkedEmployee = employees.find((e) => String(e.email || "").toLowerCase() === String(account.email || "").toLowerCase());
+      const counselorId = linkedEmployee?.id || account.id;
+      const myStudents = students.filter((s) => s.counselor === counselorId);
+      const myTasks = tasks.filter((t) => t.assigned_to.includes(counselorId));
       const activeStudents = myStudents.length;
       const visaGranted = myStudents.filter((s) => s.status === "Visa Pilot").length;
       const overdueTasks = myTasks.filter((t) => t.status === "Overdue").length;
@@ -70,9 +137,21 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
       const revenue = myStudents.reduce((acc, s) => acc + parseFloat(s.budget || "0") * 5e-3, 0);
       const converted = myStudents.filter((s) => !["New Inquiry", "Counseling"].includes(s.status)).length;
       const conversionRate = activeStudents > 0 ? Math.round(converted / activeStudents * 100) : 0;
-      const npsScore = emp.npsScore || 85;
+      const npsScore = Number.isFinite(linkedEmployee?.npsScore) ? linkedEmployee.npsScore : 0;
+      const resolvedTeamLeadById = teamLeadOptions.find((lead) => String(lead.id || "") === String(account.teamLeadId || ""));
+      const resolvedTeamLeadByEmail = teamLeadOptions.find(
+        (lead) => String(lead.email || "").toLowerCase() === String(account.teamLeadEmail || "").toLowerCase()
+      );
+      const resolvedTeamLead = resolvedTeamLeadById || resolvedTeamLeadByEmail;
       return {
-        ...emp,
+        ...linkedEmployee,
+        ...account,
+        accountId: account.id,
+        id: counselorId,
+        name: account.username || linkedEmployee?.name || account.email || "Counselor",
+        role: String(account.role || "").toLowerCase() === "consultor" ? "Counselor" : account.role,
+        teamLeadId: account.teamLeadId || resolvedTeamLead?.id || "",
+        teamLeadName: account.teamLeadName || resolvedTeamLead?.username || (account.teamLeadEmail ? String(account.teamLeadEmail).split("@")[0] : "Unassigned"),
         metrics: {
           activeStudents,
           visaGranted,
@@ -89,10 +168,44 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
         tasks: myTasks
       };
     });
-  }, [students, employees, tasks]);
+  }, [accounts, students, employees, tasks, currentRole, authenticatedUserEmail]);
   const filteredCounselors = counselors.filter(
     (c) => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.branch.toLowerCase().includes(searchTerm.toLowerCase())
   );
+  const canManageTeamLead = currentRole === "Admin" || currentRole === "Manager";
+  const openAssignLeadModal = (counselor) => {
+    setSelectedCounselorForLead(counselor);
+    setSelectedTeamLeadId(counselor.teamLeadId || teamLeadOptions[0]?.id || "");
+    setAssignLeadError("");
+    setIsAssignLeadModalOpen(true);
+  };
+  const handleAssignTeamLead = async () => {
+    if (!selectedCounselorForLead?.accountId || !selectedTeamLeadId) {
+      setAssignLeadError("Please select a Team Lead.");
+      return;
+    }
+    setAssignLeadError("");
+    setIsUpdatingTeamLead(true);
+    const result = await updateCounselorTeamLead(selectedCounselorForLead.accountId, selectedTeamLeadId);
+    setIsUpdatingTeamLead(false);
+    if (!result.ok) {
+      setAssignLeadError(result.error || "Failed to update Team Lead.");
+      return;
+    }
+    setAccounts((prev) => prev.map((row) => row.id === result.data.id ? result.data : row));
+    setIsAssignLeadModalOpen(false);
+    setSelectedCounselorForLead(null);
+    setSelectedTeamLeadId("");
+    if (onAddActivity) {
+      onAddActivity({
+        user: currentRole || "Admin",
+        role: currentRole || "Admin",
+        action: "reassigned team lead",
+        target: result.data.username || selectedCounselorForLead.name || "Counselor",
+        type: "system"
+      });
+    }
+  };
   const handleTransfer = () => {
     if (selectedCounselorId && targetCounselorId) {
       onTransferStudents(selectedCounselorId, targetCounselorId);
@@ -366,7 +479,8 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
         ] }),
         /* @__PURE__ */ jsx("button", { onClick: () => setIsAddModalOpen(false), className: "text-slate-400 hover:text-slate-600 transition-colors", children: /* @__PURE__ */ jsx(X, { size: 20 }) })
       ] }),
-      /* @__PURE__ */ jsxs("form", { className: "p-5 space-y-4", onSubmit: handleAddCounselor, children: [
+        /* @__PURE__ */ jsxs("form", { className: "p-5 space-y-4", onSubmit: handleAddCounselor, children: [
+          addCounselorError && /* @__PURE__ */ jsx("div", { className: "text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2", children: addCounselorError }),
         /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-2 gap-4", children: [
           /* @__PURE__ */ jsxs("div", { className: "col-span-2", children: [
             /* @__PURE__ */ jsx("label", { className: "block text-xs font-bold text-slate-500 uppercase mb-1", children: "Full Name" }),
@@ -404,7 +518,7 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
               )
             ] })
           ] }),
-          /* @__PURE__ */ jsxs("div", { children: [
+          /* @__PURE__ */ jsxs("div", { className: "col-span-2", children: [
             /* @__PURE__ */ jsx("label", { className: "block text-xs font-bold text-slate-500 uppercase mb-1", children: "Branch" }),
             /* @__PURE__ */ jsxs("div", { className: "relative", children: [
               /* @__PURE__ */ jsx(MapPin, { className: "absolute left-3 top-2.5 text-slate-400", size: 16 }),
@@ -415,32 +529,64 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
                   className: "w-full pl-10 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none bg-white",
                   value: newCounselor.branch,
                   onChange: (e) => setNewCounselor({ ...newCounselor, branch: e.target.value }),
+                  disabled: branchOptions.length === 0,
                   children: [
-                    /* @__PURE__ */ jsx("option", { children: "Colombo HQ" }),
-                    /* @__PURE__ */ jsx("option", { children: "Kandy" }),
-                    /* @__PURE__ */ jsx("option", { children: "Galle" }),
-                    /* @__PURE__ */ jsx("option", { children: "Jaffna" })
+                    /* @__PURE__ */ jsx("option", {
+                      value: "",
+                      disabled: true,
+                      children: branchOptions.length === 0 ? "No saved branches" : "Select branch"
+                    }),
+                    ...branchOptions.map((branch) => /* @__PURE__ */ jsx("option", { value: branch, children: branch }, branch))
                   ]
                 }
               )
             ] })
           ] }),
-          /* @__PURE__ */ jsxs("div", { children: [
-            /* @__PURE__ */ jsx("label", { className: "block text-xs font-bold text-slate-500 uppercase mb-1", children: "Role" }),
+          /* @__PURE__ */ jsxs("div", { className: "col-span-2", children: [
+            /* @__PURE__ */ jsx("label", { className: "block text-xs font-bold text-slate-500 uppercase mb-1", children: "Assign Team Lead" }),
             /* @__PURE__ */ jsxs("div", { className: "relative", children: [
-              /* @__PURE__ */ jsx(Briefcase, { className: "absolute left-3 top-2.5 text-slate-400", size: 16 }),
+              /* @__PURE__ */ jsx(UserCog, { className: "absolute left-3 top-2.5 text-slate-400", size: 16 }),
               /* @__PURE__ */ jsxs(
                 "select",
                 {
-                  name: "role",
+                  name: "teamLeadId",
+                  required: true,
                   className: "w-full pl-10 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none bg-white",
-                  value: newCounselor.role,
-                  onChange: (e) => setNewCounselor({ ...newCounselor, role: e.target.value }),
+                  value: newCounselor.teamLeadId,
+                  onChange: (e) => setNewCounselor({ ...newCounselor, teamLeadId: e.target.value }),
+                  disabled: teamLeadOptions.length === 0,
                   children: [
-                    /* @__PURE__ */ jsx("option", { children: "Senior Counselor" }),
-                    /* @__PURE__ */ jsx("option", { children: "Junior Counselor" }),
-                    /* @__PURE__ */ jsx("option", { children: "Team Lead" })
+                    /* @__PURE__ */ jsx("option", {
+                      value: "",
+                      disabled: true,
+                      children: teamLeadOptions.length === 0 ? "No Team Leads available" : "Select Team Lead"
+                    }),
+                    ...teamLeadOptions.map((lead) => /* @__PURE__ */ jsxs("option", { value: lead.id, children: [
+                      lead.username,
+                      " (",
+                      lead.branch || "No branch",
+                      ")"
+                    ] }, lead.id))
                   ]
+                }
+              )
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx("input", { type: "hidden", name: "role", value: newCounselor.role }),
+          /* @__PURE__ */ jsxs("div", { className: "col-span-2", children: [
+            /* @__PURE__ */ jsx("label", { className: "block text-xs font-bold text-slate-500 uppercase mb-1", children: "Password" }),
+            /* @__PURE__ */ jsxs("div", { className: "relative", children: [
+              /* @__PURE__ */ jsx(KeyRound, { className: "absolute left-3 top-2.5 text-slate-400", size: 16 }),
+              /* @__PURE__ */ jsx(
+                "input",
+                {
+                  name: "password",
+                  required: true,
+                  type: "password",
+                  placeholder: "Set account password",
+                  className: "w-full pl-10 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 outline-none",
+                  value: newCounselor.password,
+                  onChange: (e) => setNewCounselor({ ...newCounselor, password: e.target.value })
                 }
               )
             ] })
@@ -464,33 +610,61 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ jsxs("div", { className: "flex justify-end gap-2 pt-4 border-t border-gray-100", children: [
-          /* @__PURE__ */ jsx(Button, { variant: "ghost", type: "button", onClick: () => setIsAddModalOpen(false), children: "Cancel" }),
-          /* @__PURE__ */ jsx(Button, { type: "submit", className: "bg-indigo-600 hover:bg-indigo-700 text-white", children: "Create Profile" })
+          /* @__PURE__ */ jsxs("div", { className: "flex justify-end gap-2 pt-4 border-t border-gray-100", children: [
+            /* @__PURE__ */ jsx(Button, { variant: "ghost", type: "button", onClick: () => setIsAddModalOpen(false), disabled: isAddingCounselor, children: "Cancel" }),
+            /* @__PURE__ */ jsx(Button, { type: "submit", isLoading: isAddingCounselor, disabled: teamLeadOptions.length === 0, children: "Create Profile" })
         ] })
       ] })
     ] }) }),
+    isAssignLeadModalOpen && selectedCounselorForLead && canManageTeamLead ? /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl shadow-2xl w-full max-w-md border border-gray-100 scale-100 animate-in zoom-in-95 overflow-hidden", children: [
+      /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-center p-5 border-b border-gray-100 bg-slate-50", children: [
+        /* @__PURE__ */ jsxs("div", { children: [
+          /* @__PURE__ */ jsx("h3", { className: "font-bold text-lg text-slate-900", children: "Assign Team Lead" }),
+          /* @__PURE__ */ jsxs("p", { className: "text-xs text-slate-500 mt-1", children: [
+            "Update Team Lead for ",
+            selectedCounselorForLead.name
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx("button", { onClick: () => setIsAssignLeadModalOpen(false), className: "text-slate-400 hover:text-slate-600 transition-colors", children: /* @__PURE__ */ jsx(X, { size: 20 }) })
+      ] }),
+      /* @__PURE__ */ jsxs("div", { className: "p-5 space-y-4", children: [
+        assignLeadError ? /* @__PURE__ */ jsx("div", { className: "text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2", children: assignLeadError }) : null,
+        /* @__PURE__ */ jsxs("div", { className: "space-y-1.5", children: [
+          /* @__PURE__ */ jsx("label", { className: "text-xs font-semibold uppercase tracking-wide text-slate-700", children: "Team Lead" }),
+          /* @__PURE__ */ jsxs("select", {
+            className: "w-full px-3 py-2 text-sm bg-slate-50 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500",
+            value: selectedTeamLeadId,
+            onChange: (e) => setSelectedTeamLeadId(e.target.value),
+            children: [
+              /* @__PURE__ */ jsx("option", { value: "", disabled: true, children: "Select Team Lead" }),
+              ...teamLeadOptions.map((lead) => /* @__PURE__ */ jsxs("option", { value: lead.id, children: [
+                lead.username,
+                " (",
+                lead.branch || "No branch",
+                ")"
+              ] }, lead.id))
+            ]
+          })
+        ] }),
+        /* @__PURE__ */ jsxs("div", { className: "pt-2 flex justify-end gap-2", children: [
+          /* @__PURE__ */ jsx(Button, { type: "button", variant: "ghost", onClick: () => setIsAssignLeadModalOpen(false), disabled: isUpdatingTeamLead, children: "Cancel" }),
+          /* @__PURE__ */ jsx(Button, { type: "button", onClick: handleAssignTeamLead, isLoading: isUpdatingTeamLead, disabled: teamLeadOptions.length === 0 || !selectedTeamLeadId, children: "Save Team Lead" })
+        ] })
+      ] })
+    ] }) }) : null,
     /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4", children: [
       /* @__PURE__ */ jsx(MetricCard, { title: "Active Counselors", value: counselors.length.toString(), icon: /* @__PURE__ */ jsx(Briefcase, { size: 18 }) }),
-      /* @__PURE__ */ jsx(MetricCard, { title: "Avg SLA Score", value: `${Math.round(counselors.reduce((acc, c) => acc + c.metrics.sla, 0) / counselors.length)}%`, icon: /* @__PURE__ */ jsx(CheckCircle, { size: 18 }), color: "text-emerald-600" }),
+      /* @__PURE__ */ jsx(MetricCard, { title: "Avg SLA Score", value: counselors.length > 0 ? `${Math.round(counselors.reduce((acc, c) => acc + c.metrics.sla, 0) / counselors.length)}%` : "0%", icon: /* @__PURE__ */ jsx(CheckCircle, { size: 18 }), color: "text-emerald-600" }),
       /* @__PURE__ */ jsx(MetricCard, { title: "Total Students", value: counselors.reduce((acc, c) => acc + c.metrics.activeStudents, 0).toString(), icon: /* @__PURE__ */ jsx(Users, { size: 18 }) }),
       /* @__PURE__ */ jsxs("div", { className: "bg-gradient-to-br from-[#D32722] via-[#BF342F] to-[#883560] p-5 rounded-xl text-white shadow-lg relative overflow-hidden flex items-center gap-4", children: [
-        /* @__PURE__ */ jsx("div", { className: "w-16 h-16 bg-white rounded-xl flex-shrink-0 overflow-hidden shadow-sm border-2 border-white/20", children: /* @__PURE__ */ jsx(
-          "img",
-          {
-            src: "/8.jpg",
-            alt: "Nethmini Julanjala",
-            className: "w-full h-full object-cover",
-            referrerPolicy: "no-referrer"
-          }
-        ) }),
+        /* @__PURE__ */ jsx("div", { className: "w-16 h-16 bg-white rounded-xl flex-shrink-0 overflow-hidden shadow-sm border-2 border-white/20 flex items-center justify-center text-slate-700 font-bold", children: counselors.length > 0 ? (counselors[0].name || "C").charAt(0).toUpperCase() : "N/A" }),
         /* @__PURE__ */ jsxs("div", { className: "relative z-10 flex-1", children: [
-          /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2 text-white/80 text-xs font-bold uppercase tracking-wider mb-1", children: [
-            /* @__PURE__ */ jsx(Star, { size: 14, className: "text-yellow-400", fill: "currentColor" }),
-            " Top Performer"
-          ] }),
-          /* @__PURE__ */ jsx("div", { className: "text-xl font-bold", children: "Nethmini Julanjala" }),
-          /* @__PURE__ */ jsx("div", { className: "text-sm text-white/90 font-medium mt-0.5", children: "3 Visas Granted" })
+          /* @__PURE__ */ jsx("div", { className: "text-white/80 text-xs font-bold uppercase tracking-wider mb-1", children: "Top Performer" }),
+          /* @__PURE__ */ jsx("div", { className: "text-xl font-bold", children: counselors.length > 0 ? counselors.slice().sort((a, b) => b.metrics.visaGranted - a.metrics.visaGranted)[0].name : "No counselor data" }),
+          /* @__PURE__ */ jsxs("div", { className: "text-sm text-white/90 font-medium mt-0.5", children: [
+            counselors.length > 0 ? counselors.slice().sort((a, b) => b.metrics.visaGranted - a.metrics.visaGranted)[0].metrics.visaGranted : 0,
+            " Visas Granted"
+          ] })
         ] }),
         /* @__PURE__ */ jsx("div", { className: "absolute -right-4 -bottom-4 text-white opacity-10", children: /* @__PURE__ */ jsx(Users, { size: 100 }) })
       ] })
@@ -509,7 +683,11 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
           /* @__PURE__ */ jsx("div", { className: "w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold border border-slate-200", children: c.avatar ? /* @__PURE__ */ jsx("img", { src: c.avatar, alt: c.name, className: "w-full h-full object-cover rounded-full", referrerPolicy: "no-referrer" }) : c.name.charAt(0) }),
           /* @__PURE__ */ jsxs("div", { children: [
             /* @__PURE__ */ jsx("p", { className: "font-semibold text-slate-900", children: c.name }),
-            /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: c.role })
+            /* @__PURE__ */ jsxs("p", { className: "text-xs text-slate-500", children: [
+              c.role,
+              " \u2022 Team Lead: ",
+              c.teamLeadName || "Unassigned"
+            ] })
           ] })
         ] }) }),
         /* @__PURE__ */ jsx("td", { className: "px-6 py-4 hidden md:table-cell text-slate-600", children: c.branch }),
@@ -540,9 +718,12 @@ const CounselorManagement = ({ students, employees, tasks, onTransferStudents, o
           c.metrics.successRate,
           "%"
         ] }),
-        /* @__PURE__ */ jsx("td", { className: "px-6 py-4 text-right", children: /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "secondary", onClick: () => setSelectedCounselorId(c.id), children: [
-          "View ",
-          /* @__PURE__ */ jsx(ArrowRight, { size: 14, className: "ml-1" })
+        /* @__PURE__ */ jsx("td", { className: "px-6 py-4 text-right", children: /* @__PURE__ */ jsxs("div", { className: "flex justify-end gap-2", children: [
+          canManageTeamLead ? /* @__PURE__ */ jsx(Button, { size: "sm", variant: "outline", onClick: () => openAssignLeadModal(c), children: c.teamLeadName && c.teamLeadName !== "Unassigned" ? "Change Lead" : "Assign Lead" }) : null,
+          /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "secondary", onClick: () => setSelectedCounselorId(c.id), children: [
+            "View ",
+            /* @__PURE__ */ jsx(ArrowRight, { size: 14, className: "ml-1" })
+          ] })
         ] }) })
       ] }, c.id)) })
     ] }) })

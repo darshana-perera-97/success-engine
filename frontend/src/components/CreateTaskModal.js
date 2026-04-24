@@ -1,25 +1,26 @@
 import { jsx, jsxs } from "react/jsx-runtime";
 import { useState } from "react";
 import { X, AlertCircle } from "lucide-react";
-import { STUDENTS, EMPLOYEES } from "../constants";
 import { Button } from "./Button";
 import { MultiSelect } from "./MultiSelect";
 import { DatePicker } from "./DatePicker";
-const CreateTaskModal = ({ isOpen, onClose, onSubmit, student, currentUser, userRole }) => {
+const CreateTaskModal = ({ isOpen, onClose, onSubmit, student, currentUser, userRole, students = [], employees = [] }) => {
   const [description, setDescription] = useState("");
   const [studentId, setStudentId] = useState(student?.id || "");
   const [assignedTo, setAssignedTo] = useState([]);
   const [priority, setPriority] = useState("Medium");
   const [dueDate, setDueDate] = useState("");
   const [isPrivate, setIsPrivate] = useState(true);
+  const [submitError, setSubmitError] = useState("");
   if (!isOpen) return null;
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitError("");
     let finalAssignedTo = assignedTo;
     if (userRole === "Counselor" && currentUser) {
       finalAssignedTo = [currentUser.id];
     }
-    if (!description || !studentId || finalAssignedTo.length === 0 && !isPrivate || !dueDate) return;
+    if (!description || !studentId || !dueDate) return;
     const newTask = {
       id: `T${Math.floor(Math.random() * 1e4)}`,
       task: description,
@@ -30,23 +31,28 @@ const CreateTaskModal = ({ isOpen, onClose, onSubmit, student, currentUser, user
       dueDate,
       isPrivate
     };
-    onSubmit(newTask);
+    const result = await onSubmit(newTask);
+    if (result && result.ok === false) {
+      setSubmitError(result.error || "Failed to create task.");
+      return;
+    }
     setDescription("");
     if (!student) setStudentId("");
     setAssignedTo([]);
     setPriority("Medium");
     setDueDate("");
     setIsPrivate(true);
+    setSubmitError("");
     onClose();
   };
-  const employeeOptions = EMPLOYEES.map((e) => ({
+  const employeeOptions = employees.map((e) => ({
     value: e.id,
     label: e.name,
     subLabel: `${e.role} \u2022 ${e.branch}`
   }));
   const showAssignTo = userRole === "Manager" || userRole === "Admin";
   const showRelatedStudent = !student;
-  return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-10 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl shadow-2xl w-full max-w-xl border border-gray-100 scale-100 animate-in zoom-in-95 duration-200 mx-4 relative", children: [
+  return /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl shadow-2xl w-full max-w-xl border border-gray-100 scale-100 animate-in zoom-in-95 duration-200 mx-4 relative", children: [
     /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50/50 rounded-t-xl", children: [
       /* @__PURE__ */ jsxs("div", { children: [
         /* @__PURE__ */ jsx("h3", { className: "font-semibold text-lg text-[#0F172A]", children: "Create New Task" }),
@@ -82,7 +88,7 @@ const CreateTaskModal = ({ isOpen, onClose, onSubmit, student, currentUser, user
                 required: true,
                 children: [
                   /* @__PURE__ */ jsx("option", { value: "", disabled: true, children: "Select Student" }),
-                  STUDENTS.map((s) => /* @__PURE__ */ jsxs("option", { value: s.id, children: [
+                  students.map((s) => /* @__PURE__ */ jsxs("option", { value: s.id, children: [
                     s.name,
                     " (",
                     s.country,
@@ -140,7 +146,7 @@ const CreateTaskModal = ({ isOpen, onClose, onSubmit, student, currentUser, user
           ] }),
           /* @__PURE__ */ jsxs("div", { children: [
             /* @__PURE__ */ jsx("p", { className: "text-sm font-medium text-slate-900", children: "Private Task" }),
-            /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Visible only to you and Admins." })
+            /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Private: assigned to counselor only. Public: assigned to counselor + student." })
           ] })
         ] }),
         /* @__PURE__ */ jsxs("label", { className: "relative inline-flex items-center cursor-pointer", children: [
@@ -148,6 +154,7 @@ const CreateTaskModal = ({ isOpen, onClose, onSubmit, student, currentUser, user
           /* @__PURE__ */ jsx("div", { className: "w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600" })
         ] })
       ] }),
+      submitError && /* @__PURE__ */ jsx("p", { className: "text-xs text-rose-600", children: submitError }),
       /* @__PURE__ */ jsxs("div", { className: "pt-2 flex gap-3 justify-end", children: [
         /* @__PURE__ */ jsx(Button, { type: "button", variant: "ghost", onClick: onClose, children: "Cancel" }),
         /* @__PURE__ */ jsx(Button, { type: "submit", className: "px-6", children: "Create Task" })

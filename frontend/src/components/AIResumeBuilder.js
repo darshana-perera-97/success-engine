@@ -32,12 +32,15 @@ import {
   Image as ImageIcon
 } from "lucide-react";
 import { Button } from "./Button";
-const AIResumeBuilder = ({ onNavigate, onSaveCV }) => {
+const AIResumeBuilder = ({ onNavigate, onSaveCV, currentStudent, onUploadStudentCv }) => {
   const [step, setStep] = useState("initial");
   const [activeFlow, setActiveFlow] = useState(null);
   const [progress, setProgress] = useState(0);
   const [showPdf, setShowPdf] = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [uploadError, setUploadError] = useState("");
+  const [quickUploadError, setQuickUploadError] = useState("");
+  const [isQuickUploading, setIsQuickUploading] = useState(false);
   const initialExtractedData = useMemo(() => ({
     name: "Nirash Dilshan Jayantha",
     role: "CO-Founder | ABEC Premier",
@@ -173,9 +176,51 @@ const AIResumeBuilder = ({ onNavigate, onSaveCV }) => {
     setStep("upload-cv");
     setProgress(0);
   };
+  const uploadCvToSystem = async (file, { advanceToUploading = false } = {}) => {
+    if (!onUploadStudentCv || !currentStudent?.id) {
+      return { ok: false, error: "Student CV upload is not available." };
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return { ok: false, error: "File must be under 10MB." };
+    }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Failed to read file."));
+      reader.readAsDataURL(file);
+    }).catch((error) => ({ __error: error?.message || "Failed to read file." }));
+    if (dataUrl && typeof dataUrl === "object" && dataUrl.__error) {
+      return { ok: false, error: dataUrl.__error };
+    }
+    const result = await onUploadStudentCv({
+      studentId: currentStudent.id,
+      fileName: file.name,
+      dataUrl
+    });
+    if (!result?.ok) {
+      return { ok: false, error: result?.error || "Failed to upload CV." };
+    }
+    setUploadedFile(file);
+    if (advanceToUploading) {
+      setTimeout(() => {
+        setStep("uploading");
+      }, 800);
+    }
+    return { ok: true };
+  };
   const handleFileUpload = (e) => {
     if (e.target.files && e.target.files[0]) {
-      setUploadedFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setUploadError("");
+      if (activeFlow === "update") {
+        uploadCvToSystem(file, { advanceToUploading: true }).then((result) => {
+          if (!result?.ok) {
+            setUploadError(result?.error || "Failed to upload CV.");
+          }
+        });
+        return;
+      }
+      setUploadedFile(file);
       setTimeout(() => {
         setStep("uploading");
       }, 800);
@@ -226,7 +271,7 @@ const AIResumeBuilder = ({ onNavigate, onSaveCV }) => {
     /* @__PURE__ */ jsxs("div", { className: "flex flex-col md:flex-row justify-between items-start md:items-center gap-4", children: [
       /* @__PURE__ */ jsxs("div", { children: [
         /* @__PURE__ */ jsxs("h1", { className: "text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3", children: [
-          "ABEC Premier AI Resume Builder",
+          "Premier AI Resume Builder",
           /* @__PURE__ */ jsx("span", { className: "text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full font-bold uppercase tracking-wider", children: "Beta" })
         ] }),
         /* @__PURE__ */ jsx("p", { className: "text-slate-500 mt-1", children: "Professional resumes powered by ABEC Premier AI technology." })
@@ -236,6 +281,25 @@ const AIResumeBuilder = ({ onNavigate, onSaveCV }) => {
         " Start Over"
       ] })
     ] }),
+    currentStudent?.cvFile ? /* @__PURE__ */ jsxs("div", { className: "bg-white border border-emerald-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4", children: [
+      /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
+        /* @__PURE__ */ jsx("div", { className: "h-11 w-11 rounded-lg bg-emerald-600 text-white flex items-center justify-center", children: /* @__PURE__ */ jsx(FileText, { size: 20 }) }),
+        /* @__PURE__ */ jsxs("div", { children: [
+          /* @__PURE__ */ jsx("p", { className: "text-sm font-semibold text-slate-900", children: currentStudent.cvFile.name || "Uploaded CV" }),
+          /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Uploaded CV in your profile" })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs("div", { className: "flex gap-2", children: [
+        /* @__PURE__ */ jsx("a", { href: currentStudent.cvFile.url, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "outline", children: [
+          /* @__PURE__ */ jsx(Eye, { size: 14, className: "mr-1" }),
+          "View"
+        ] }) }),
+        /* @__PURE__ */ jsx("a", { href: currentStudent.cvFile.url, target: "_blank", rel: "noreferrer", download: currentStudent.cvFile.name || true, children: /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "outline", children: [
+          /* @__PURE__ */ jsx(FileText, { size: 14, className: "mr-1" }),
+          "Download"
+        ] }) })
+      ] })
+    ] }) : null,
     /* @__PURE__ */ jsxs(AnimatePresence, { mode: "wait", children: [
       step === "initial" && /* @__PURE__ */ jsxs(
         motion.div,
@@ -245,6 +309,30 @@ const AIResumeBuilder = ({ onNavigate, onSaveCV }) => {
           exit: { opacity: 0, y: -20 },
           className: "grid grid-cols-1 md:grid-cols-2 gap-8",
           children: [
+            currentStudent ? /* @__PURE__ */ jsxs("div", { className: "md:col-span-2 bg-white border border-gray-200 rounded-2xl p-6 shadow-sm", children: [
+              /* @__PURE__ */ jsx("h3", { className: "text-base font-bold text-slate-900", children: "Quick CV Upload" }),
+              /* @__PURE__ */ jsx("p", { className: "text-sm text-slate-500 mt-1", children: "Upload your CV directly here and it will appear in your profile card view." }),
+              /* @__PURE__ */ jsxs("div", { className: "mt-4 flex flex-col sm:flex-row sm:items-center gap-3", children: [
+                /* @__PURE__ */ jsxs("label", { className: "inline-flex items-center justify-center px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer", children: [
+                  isQuickUploading ? /* @__PURE__ */ jsx(Loader2, { size: 14, className: "mr-2 animate-spin" }) : /* @__PURE__ */ jsx(Upload, { size: 14, className: "mr-2" }),
+                  isQuickUploading ? "Uploading..." : "Choose CV File",
+                  /* @__PURE__ */ jsx("input", { type: "file", accept: ".pdf,.doc,.docx", className: "hidden", disabled: isQuickUploading, onChange: async (event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) return;
+                    setQuickUploadError("");
+                    setIsQuickUploading(true);
+                    const result = await uploadCvToSystem(file);
+                    setIsQuickUploading(false);
+                    if (!result?.ok) {
+                      setQuickUploadError(result?.error || "Failed to upload CV.");
+                    }
+                    event.target.value = "";
+                  } })
+                ] }),
+                /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-400", children: "PDF, DOCX or DOC (Max. 10MB)" })
+              ] }),
+              quickUploadError ? /* @__PURE__ */ jsx("p", { className: "text-xs text-rose-600 mt-3", children: quickUploadError }) : null
+            ] }) : null,
             /* @__PURE__ */ jsxs("div", { className: "group relative bg-white border border-gray-200 rounded-3xl p-8 shadow-sm hover:shadow-xl hover:border-indigo-300 transition-all duration-500 overflow-hidden", children: [
               /* @__PURE__ */ jsx("div", { className: "absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 group-hover:bg-indigo-100 transition-colors duration-500" }),
               /* @__PURE__ */ jsxs("div", { className: "relative z-10", children: [
@@ -340,7 +428,7 @@ const AIResumeBuilder = ({ onNavigate, onSaveCV }) => {
               /* @__PURE__ */ jsx("div", { className: "border-2 border-dashed border-slate-200 rounded-2xl p-10 group-hover:border-emerald-400 group-hover:bg-emerald-50/30 transition-all duration-300", children: /* @__PURE__ */ jsxs("div", { className: "space-y-2", children: [
                 /* @__PURE__ */ jsx(Upload, { className: "mx-auto text-slate-400 group-hover:text-emerald-500 transition-colors", size: 32 }),
                 /* @__PURE__ */ jsx("p", { className: "text-sm font-bold text-slate-600", children: "Click to upload or drag and drop" }),
-                /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-400", children: "PDF, DOCX or DOC (Max. 5MB)" })
+                /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-400", children: "PDF, DOCX or DOC (Max. 10MB)" })
               ] }) })
             ] }),
             uploadedFile && /* @__PURE__ */ jsxs(
@@ -363,7 +451,8 @@ const AIResumeBuilder = ({ onNavigate, onSaveCV }) => {
                   /* @__PURE__ */ jsx(Loader2, { className: "animate-spin text-emerald-600", size: 20 })
                 ]
               }
-            )
+            ),
+            uploadError ? /* @__PURE__ */ jsx("p", { className: "text-xs text-rose-600 mt-3", children: uploadError }) : null
           ] })
         },
         "upload-cv"

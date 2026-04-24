@@ -4,17 +4,16 @@ import { ActivityFeed } from "./ActivityFeed";
 import { EscalationDesk } from "./EscalationDesk";
 import { IncentiveCalculator } from "./IncentiveCalculator";
 import { LeaderboardWidget } from "./LeaderboardWidget";
-import { STUDENTS } from "../constants";
 import { formatLKR } from "../utils";
 import { AlertOctagon, TrendingUp, ArrowRight, Zap, CheckSquare, Banknote } from "lucide-react";
 import { Button } from "./Button";
-const ManagerDashboard = ({ activities, tasks, onNavigate }) => {
+const ManagerDashboard = ({ activities, tasks, students = [], employees = [], currentUser, onNavigate }) => {
   const [activeTab, setActiveTab] = useState("escalations");
-  const totalRevenue = STUDENTS.reduce((acc, s) => acc + parseFloat(s.budget || "0") * 0.1, 0);
+  const totalRevenue = students.reduce((acc, s) => acc + parseFloat(s.budget || "0") * 0.1, 0);
   const overdueTasks = tasks.filter((t) => t.status === "Overdue").length;
   const pendingReviews = tasks.filter((t) => t.status === "In Review").length;
-  const visaGrantedCount = STUDENTS.filter((s) => s.status === "Visa Pilot").length;
-  const visaProcessingCount = STUDENTS.filter((s) => ["Visa Pilot"].includes(s.status)).length;
+  const visaGrantedCount = students.filter((s) => s.status === "Visa Pilot").length;
+  const visaProcessingCount = students.filter((s) => ["Visa Pilot"].includes(s.status)).length;
   const successRate = visaProcessingCount ? Math.round(visaGrantedCount / visaProcessingCount * 100) : 0;
   return /* @__PURE__ */ jsxs("div", { className: "space-y-8 animate-in fade-in duration-500 pb-10", children: [
     /* @__PURE__ */ jsxs("div", { className: "flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4", children: [
@@ -22,7 +21,6 @@ const ManagerDashboard = ({ activities, tasks, onNavigate }) => {
         /* @__PURE__ */ jsx("h1", { className: "text-2xl font-semibold tracking-tight text-[#0F172A]", children: "Command Center" }),
         /* @__PURE__ */ jsx("p", { className: "text-sm text-slate-500 mt-1", children: "Operational oversight and critical action items." })
       ] }),
-      /* @__PURE__ */ jsx("div", { className: "flex gap-2", children: /* @__PURE__ */ jsx(Button, { variant: "secondary", className: "w-full sm:w-auto", onClick: () => onNavigate("branch"), children: "View Full Analytics" }) })
     ] }),
     /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4", children: [
       /* @__PURE__ */ jsx(
@@ -128,13 +126,13 @@ const ManagerDashboard = ({ activities, tasks, onNavigate }) => {
         ] })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "space-y-8", children: [
-        /* @__PURE__ */ jsx(LeaderboardWidget, {}),
+        /* @__PURE__ */ jsx(LeaderboardWidget, { students, employees, currentUserId: currentUser?.id || "", currentUserEmail: currentUser?.email || "" }),
         /* @__PURE__ */ jsxs("div", { className: "bg-white border border-gray-200 rounded-xl p-5 shadow-sm h-auto flex flex-col", children: [
           /* @__PURE__ */ jsx("div", { className: "flex justify-between items-center mb-4", children: /* @__PURE__ */ jsxs("h3", { className: "font-bold text-slate-900 flex items-center gap-2", children: [
             /* @__PURE__ */ jsx(Zap, { size: 18, className: "text-indigo-600", fill: "currentColor" }),
             "Live Operations Feed"
           ] }) }),
-          /* @__PURE__ */ jsx("div", { className: "flex-1 min-h-[250px] overflow-y-auto", children: /* @__PURE__ */ jsx(ActivityFeed, { activities, limit: 5 }) })
+          /* @__PURE__ */ jsx("div", { className: "flex-1 min-h-[250px] overflow-y-auto", children: /* @__PURE__ */ jsx(ActivityFeed, { activities, limit: 5, showRoleBadge: false }) })
         ] })
       ] })
     ] })

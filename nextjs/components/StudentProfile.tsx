@@ -191,7 +191,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     onCreateInvoice
 }) => {
   const [localStudent, setLocalStudent] = useState<Student>(student);
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'show-money' | 'visa-pilot' | 'ledger' | 'resume'>('pipeline');
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'show-money' | 'visa-pilot' | 'ledger' | 'resume' | 'tasks'>('pipeline');
 
   useEffect(() => {
     setLocalStudent(student);
@@ -319,6 +319,41 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           case 'show-money': return <FinancialCalculator student={localStudent} />;
           case 'visa-pilot': return <VisaPilot student={localStudent} onUpdateStudent={handleUpdateStudentLocal} />;
           case 'ledger': return <FinanceModule student={localStudent} invoices={invoices} userRole={userRole} onUpdateInvoice={onUpdateInvoice} onCreateInvoice={onCreateInvoice} />;
+          case 'tasks': {
+            const scopedTasks = (tasks || []).filter((task) => {
+              if (task.student_id !== localStudent.id) return false;
+              if (userRole === 'Student' && task.isPrivate) return false;
+              return true;
+            });
+            return (
+              <div className="space-y-4">
+                <h3 className="text-lg font-bold text-slate-900">Student Tasks</h3>
+                {scopedTasks.length === 0 ? (
+                  <div className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-4">
+                    No tasks found for this student.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {scopedTasks.map((task) => (
+                      <div key={task.id} className="border border-gray-200 rounded-lg p-4 bg-white">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-semibold text-slate-900">{task.task}</p>
+                          <span className="text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-wide bg-slate-100 text-slate-700">
+                            {task.status || 'Pending'}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-xs text-slate-500 flex gap-4">
+                          <span>Priority: {task.priority || 'Medium'}</span>
+                          <span>Due: {task.dueDate || '-'}</span>
+                          {task.isPrivate && <span className="text-amber-700 font-semibold">Private</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
           case 'resume': return (
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -531,6 +566,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         <TabButton icon={DollarSign} label="Show Money" activeTab={activeTab} tabName="show-money" onClick={setActiveTab} />
                         <TabButton icon={Plane} label="Visa Pilot" activeTab={activeTab} tabName="visa-pilot" onClick={setActiveTab} />
                         <TabButton icon={Banknote} label="Ledger" activeTab={activeTab} tabName="ledger" onClick={setActiveTab} />
+                        <TabButton icon={FileText} label="Tasks" activeTab={activeTab} tabName="tasks" onClick={setActiveTab} />
                     </div>
                 </div>
             </div>

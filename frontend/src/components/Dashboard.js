@@ -1,4 +1,5 @@
 import { jsx, jsxs } from "react/jsx-runtime";
+import { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -14,39 +15,79 @@ import {
   Area,
   Legend
 } from "recharts";
-import { STUDENTS } from "../constants";
 import { formatRawLKR } from "../utils";
 import { Users, Globe, Briefcase, MapPin, Banknote } from "lucide-react";
-const funnelData = [
-  { name: "Total Inquiries", value: STUDENTS.length, fill: "#94A3B8" },
-  { name: "Counseling", value: STUDENTS.filter((s) => s.status === "Counseling" || s.status === "New Inquiry").length, fill: "#64748B" },
-  { name: "Uni Apps", value: STUDENTS.filter((s) => ["Uni Application", "Offer Received", "Visa Pilot"].includes(s.status)).length, fill: "#6366F1" },
-  { name: "Visas Granted", value: STUDENTS.filter((s) => s.status === "Visa Pilot").length, fill: "#10B981" }
-];
-const countryData = [
-  { name: "UK", value: STUDENTS.filter((s) => s.country === "UK").length },
-  { name: "Canada", value: STUDENTS.filter((s) => s.country === "Canada").length },
-  { name: "Australia", value: STUDENTS.filter((s) => s.country === "Australia").length },
-  { name: "New Zealand", value: STUDENTS.filter((s) => s.country === "New Zealand").length },
-  { name: "Other", value: STUDENTS.filter((s) => s.country === "USA").length }
-];
-const revenueData = [
-  { month: "Jan", revenue: 12e6 },
-  { month: "Feb", revenue: 15e6 },
-  { month: "Mar", revenue: 18e6 },
-  { month: "Apr", revenue: 22e6 },
-  { month: "May", revenue: 25e6 },
-  { month: "Jun", revenue: 3e7 }
-];
 const PIE_COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#6366F1"];
-const Dashboard = () => {
+const Dashboard = ({ students = [], invoices = [] }) => {
+  const totalStudents = students.length;
+  const counselingCount = students.filter((student) => student.status === "Counseling" || student.status === "New Inquiry").length;
+  const uniAppsCount = students.filter((student) => ["Uni Application", "Offer Received", "Visa Pilot"].includes(student.status)).length;
+  const visasGranted = students.filter((student) => student.status === "Visa Pilot").length;
+  const activeApplications = students.filter((student) => student.status !== "New Inquiry").length;
+  const successRate = uniAppsCount ? Math.round(visasGranted / uniAppsCount * 100) : 0;
+  const estimatedRevenue = students.reduce((sum, student) => {
+    const value = Number(String(student.budget || "").replace(/[^\d.]/g, ""));
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+  const funnelData = [
+    { name: "Total Inquiries", value: totalStudents, fill: "#94A3B8" },
+    { name: "Counseling", value: counselingCount, fill: "#64748B" },
+    { name: "Uni Apps", value: uniAppsCount, fill: "#6366F1" },
+    { name: "Visas Granted", value: visasGranted, fill: "#10B981" }
+  ];
+  const countryData = [
+    { name: "UK", value: students.filter((student) => student.country === "UK").length },
+    { name: "Canada", value: students.filter((student) => student.country === "Canada").length },
+    { name: "Australia", value: students.filter((student) => student.country === "Australia").length },
+    { name: "New Zealand", value: students.filter((student) => student.country === "New Zealand").length },
+    { name: "Other", value: students.filter((student) => !["UK", "Canada", "Australia", "New Zealand"].includes(student.country)).length }
+  ];
+  const revenueData = useMemo(() => {
+    const labels = [];
+    const bucket = new Map();
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date();
+      monthDate.setMonth(monthDate.getMonth() - i, 1);
+      const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`;
+      const label = monthDate.toLocaleString("en-US", { month: "short" });
+      labels.push({ key, label });
+      bucket.set(key, 0);
+    }
+    (invoices || []).forEach((invoice) => {
+      const issueDate = new Date(invoice.issueDate || invoice.createdAt || "");
+      if (Number.isNaN(issueDate.getTime())) return;
+      const key = `${issueDate.getFullYear()}-${String(issueDate.getMonth() + 1).padStart(2, "0")}`;
+      if (!bucket.has(key)) return;
+      const amount = Number(invoice.amount);
+      const current = bucket.get(key) || 0;
+      bucket.set(key, current + (Number.isFinite(amount) ? amount : 0));
+    });
+    return labels.map(({ key, label }) => ({ month: label, revenue: bucket.get(key) || 0 }));
+  }, [invoices]);
+  const branchSnapshot = useMemo(() => {
+    const grouped = new Map();
+    students.forEach((student) => {
+      const key = String(student.branch || "Unknown").trim() || "Unknown";
+      const current = grouped.get(key) || { name: key, students: 0, converted: 0 };
+      current.students += 1;
+      if (["Uni Application", "Offer Received", "Visa Pilot"].includes(String(student.status || ""))) {
+        current.converted += 1;
+      }
+      grouped.set(key, current);
+    });
+    return Array.from(grouped.values()).map((item) => ({
+      ...item,
+      conversion: item.students ? Math.round(item.converted / item.students * 100) : 0
+    })).sort((a, b) => b.conversion - a.conversion);
+  }, [students]);
+  const revenueTrend = revenueData.length >= 2 && revenueData[revenueData.length - 2].revenue > 0 ? Math.round((revenueData[revenueData.length - 1].revenue - revenueData[revenueData.length - 2].revenue) / revenueData[revenueData.length - 2].revenue * 100) : 0;
   return /* @__PURE__ */ jsxs("div", { className: "space-y-6 animate-in fade-in duration-500", children: [
     /* @__PURE__ */ jsx("h1", { className: "text-2xl font-semibold tracking-tight text-[#0F172A]", children: "Executive Overview" }),
     /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 md:grid-cols-4 gap-4", children: [
-      /* @__PURE__ */ jsx(KpiCard, { title: "Total Students", value: STUDENTS.length.toString(), trend: "+12%", icon: /* @__PURE__ */ jsx(Users, { size: 20 }) }),
-      /* @__PURE__ */ jsx(KpiCard, { title: "Active Applications", value: "18", trend: "+5%", icon: /* @__PURE__ */ jsx(Briefcase, { size: 20 }) }),
-      /* @__PURE__ */ jsx(KpiCard, { title: "Visa Success Rate", value: "94%", trend: "+2%", icon: /* @__PURE__ */ jsx(Globe, { size: 20 }), positive: true }),
-      /* @__PURE__ */ jsx(KpiCard, { title: "Est. Revenue (Q3)", value: formatRawLKR(45e6), trend: "+8%", icon: /* @__PURE__ */ jsx(Banknote, { size: 20 }), positive: true })
+      /* @__PURE__ */ jsx(KpiCard, { title: "Total Students", value: String(totalStudents), trend: "Live", icon: /* @__PURE__ */ jsx(Users, { size: 20 }) }),
+      /* @__PURE__ */ jsx(KpiCard, { title: "Active Applications", value: String(activeApplications), trend: "Live", icon: /* @__PURE__ */ jsx(Briefcase, { size: 20 }) }),
+      /* @__PURE__ */ jsx(KpiCard, { title: "Visa Success Rate", value: `${successRate}%`, trend: "Live", icon: /* @__PURE__ */ jsx(Globe, { size: 20 }), positive: true }),
+      /* @__PURE__ */ jsx(KpiCard, { title: "Est. Revenue", value: formatRawLKR(estimatedRevenue), trend: "Live", icon: /* @__PURE__ */ jsx(Banknote, { size: 20 }), positive: true })
     ] }),
     /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6", children: [
       /* @__PURE__ */ jsxs("div", { className: "lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-[350px] flex flex-col", children: [
@@ -86,7 +127,7 @@ const Dashboard = () => {
             /* @__PURE__ */ jsx(Legend, { verticalAlign: "bottom", height: 36, iconType: "circle", wrapperStyle: { fontSize: "10px" } })
           ] }) }),
           /* @__PURE__ */ jsx("div", { className: "absolute inset-0 flex items-center justify-center pointer-events-none pb-8", children: /* @__PURE__ */ jsxs("div", { className: "text-center", children: [
-            /* @__PURE__ */ jsx("div", { className: "text-2xl font-bold text-slate-900", children: STUDENTS.length }),
+            /* @__PURE__ */ jsx("div", { className: "text-2xl font-bold text-slate-900", children: totalStudents }),
             /* @__PURE__ */ jsx("div", { className: "text-xs text-slate-500 uppercase", children: "Active" })
           ] }) })
         ] })
@@ -96,7 +137,7 @@ const Dashboard = () => {
       /* @__PURE__ */ jsxs("div", { className: "bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-[300px]", children: [
         /* @__PURE__ */ jsxs("h3", { className: "text-sm font-semibold text-slate-900 mb-4 flex justify-between", children: [
           /* @__PURE__ */ jsx("span", { children: "Revenue Forecast" }),
-          /* @__PURE__ */ jsx("span", { className: "text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-xs font-bold", children: "+15% vs Last Year" })
+          /* @__PURE__ */ jsx("span", { className: "text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-xs font-bold", children: `${revenueTrend >= 0 ? "+" : ""}${revenueTrend}% vs last month` })
         ] }),
         /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "80%", children: /* @__PURE__ */ jsxs(AreaChart, { data: revenueData, children: [
           /* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsxs("linearGradient", { id: "colorRev", x1: "0", y1: "0", x2: "0", y2: "1", children: [
@@ -120,12 +161,7 @@ const Dashboard = () => {
           /* @__PURE__ */ jsx(MapPin, { size: 16, className: "mr-2" }),
           " Branch Performance Snapshot"
         ] }),
-        /* @__PURE__ */ jsx("div", { className: "space-y-4", children: [
-          { name: "Colombo HQ", conversion: 78, students: 44, color: "bg-indigo-600" },
-          { name: "Jaffna", conversion: 54, students: 35, color: "bg-slate-400" },
-          { name: "Galle", conversion: 42, students: 22, color: "bg-slate-400" },
-          { name: "Kandy", conversion: 31, students: 26, color: "bg-rose-500" }
-        ].map((branch) => {
+        /* @__PURE__ */ jsx("div", { className: "space-y-4", children: branchSnapshot.map((branch, idx) => {
           return /* @__PURE__ */ jsxs("div", { children: [
             /* @__PURE__ */ jsxs("div", { className: "flex justify-between text-xs mb-1", children: [
               /* @__PURE__ */ jsx("span", { className: "font-medium text-slate-700", children: branch.name }),
@@ -139,13 +175,12 @@ const Dashboard = () => {
             /* @__PURE__ */ jsx("div", { className: "w-full bg-gray-100 rounded-full h-2", children: /* @__PURE__ */ jsx(
               "div",
               {
-                className: `h-2 rounded-full ${branch.color}`,
+                className: `h-2 rounded-full ${idx === 0 ? "bg-indigo-600" : "bg-slate-400"}`,
                 style: { width: `${branch.conversion}%` }
               }
             ) })
           ] }, branch.name);
-        }) }),
-        /* @__PURE__ */ jsx("div", { className: "mt-6 pt-4 border-t border-gray-100 text-center", children: /* @__PURE__ */ jsx("button", { className: "text-xs font-semibold text-indigo-600 hover:text-indigo-800", children: "View Full Branch Analytics \u2192" }) })
+        }) })
       ] })
     ] })
   ] });

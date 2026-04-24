@@ -1,6 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Layout } from './components/Layout';
+import { LoginScreen } from './components/LoginScreen';
+import { clearLoginSession, hasLoginSession } from './authSession';
+import { getAccounts } from './authApi';
  
 import { AdminDashboard } from './components/AdminDashboard';
 import { ManagerDashboard } from './components/ManagerDashboard';
@@ -14,7 +17,8 @@ import { ChatInterface } from './components/ChatInterface';
 import { UniversityKnowledgeBase } from './components/UniversityKnowledgeBase';
 import { FinanceModule } from './components/FinanceModule'; 
 import { CalendarScheduler } from './components/CalendarScheduler'; 
-import { CounselorManagement } from './components/CounselorManagement'; 
+import { CounselorManagement } from './components/CounselorManagement';
+import { AccountsManagement } from './components/AccountsManagement'; 
 import { AIResumeBuilder } from './components/AIResumeBuilder';
 import { CreateTaskModal } from './components/CreateTaskModal';
 import { Student, UserRole, Task, ActivityLog, Message, Employee, Invoice, Appointment } from './types';
@@ -23,8 +27,47 @@ import { STUDENTS, TASKS, INITIAL_ACTIVITIES, MOCK_MESSAGES, EMPLOYEES, INVOICES
 
 // Helper for ID generation to avoid impure function calls during render (linter rule)
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+const VIEW_TO_PATH: Record<string, string> = {
+  dashboard: '/dashboard',
+  students: '/students',
+  accounts: '/accounts',
+  tasks: '/tasks',
+  counselors: '/counselors',
+  branch: '/branch',
+  messages: '/messages',
+  resume: '/resume',
+  university: '/uni-database',
+  calendar: '/calendar',
+  finance: '/finance',
+  'student-detail': '/student-detail',
+};
+
+const PATH_TO_VIEW: Record<string, string> = {
+  '/': 'dashboard',
+  '/dashboard': 'dashboard',
+  '/students': 'students',
+  '/accounts': 'accounts',
+  '/tasks': 'tasks',
+  '/counselors': 'counselors',
+  '/branch': 'branch',
+  '/messages': 'messages',
+  '/resume': 'resume',
+  '/uni-database': 'university',
+  '/university': 'university',
+  '/calendar': 'calendar',
+  '/finance': 'finance',
+  '/student-detail': 'student-detail',
+};
+
+const getViewFromPath = (): string => {
+  if (typeof window === 'undefined') return 'dashboard';
+  return PATH_TO_VIEW[window.location.pathname] || 'dashboard';
+};
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(hasLoginSession);
+  const [adminAvatar, setAdminAvatar] = useState('/CEO.png');
+
   // --- Centralized State for "Interconnected" Workflow ---
   const [students, setStudents] = useState<Student[]>(STUDENTS);
   const [employees, setEmployees] = useState<Employee[]>(EMPLOYEES);
@@ -34,7 +77,7 @@ function App() {
   const [invoices, setInvoices] = useState<Invoice[]>(INVOICES); 
   const [appointments, setAppointments] = useState<Appointment[]>(APPOINTMENTS); 
   
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState(getViewFromPath);
   const [currentRole, setCurrentRole] = useState<UserRole>('Admin');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -60,19 +103,45 @@ function App() {
           return students.find(s => s.id === 'STU1001') || students[0];
       } else if (currentRole === 'Counselor') {
           return employees.find(e => e.id === 'EMP002') || employees[1]; // Sarah
-      } else if (currentRole === 'Manager') {
+      } else if (currentRole === 'Manager' || currentRole === 'Team Lead') {
           return employees.find(e => e.id === 'EMP004') || employees[3]; // Devinda
       } else {
           return employees[0]; // Admin
       }
   };
   const currentUser = getCurrentUserObject();
+  const headerAvatar =
+    currentRole === 'Admin'
+      ? adminAvatar
+      : ((currentUser as Student | Employee).avatar || '/canadian.png');
+
+  useEffect(() => {
+    const loadAdminAvatar = async () => {
+      const result = await getAccounts();
+      if (!result.ok) return;
+      const admin = result.data.find((a) => a.role === 'Admin');
+      if (admin?.avatar) setAdminAvatar(admin.avatar);
+    };
+    loadAdminAvatar();
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setCurrentView(getViewFromPath());
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
 
   // --- Handlers ---
 
   const handleNavigate = (view: string) => {
     setCurrentView(view);
+    const nextPath = VIEW_TO_PATH[view];
+    if (nextPath && window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
     if (view !== 'student-detail') {
       setSelectedStudent(null);
     }
@@ -401,21 +470,21 @@ function App() {
 
     if (currentRole === 'Counselor') {
         if (currentView === 'dashboard') return <CounselorDashboard onNavigate={handleNavigate} tasks={tasks} currentUser={currentUser} students={students} onSelectStudent={handleSelectStudent} onSelectTask={handleSelectTask} />;
-        if (currentView === 'students') return <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} />;
+        if (currentView === 'students') return <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} currentUser={currentUser} />;
         if (currentView === 'tasks') return <TaskManager userRole="Counselor" tasks={tasks} currentUser={currentUser} selectedTaskId={selectedTaskId} onUpdateTasks={handleUpdateTasks} onAddTask={handleAddTask} />;
         if (currentView === 'student-detail') return selectedStudent ? 
-            <StudentProfile {...studentProfileProps} student={selectedStudent} userRole="Counselor" /> : <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} />;
+            <StudentProfile {...studentProfileProps} student={selectedStudent} userRole="Counselor" /> : <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} currentUser={currentUser} />;
         return <CounselorDashboard onNavigate={handleNavigate} tasks={tasks} currentUser={currentUser} students={students} onSelectStudent={handleSelectStudent} onSelectTask={handleSelectTask} />;
     }
 
-    if (currentRole === 'Manager') {
+    if (currentRole === 'Manager' || currentRole === 'Team Lead') {
         if (currentView === 'dashboard') return <ManagerDashboard activities={activities} tasks={tasks} onNavigate={handleNavigate} />;
         if (currentView === 'counselors') return <CounselorManagement onNavigate={handleNavigate} students={students} employees={employees} tasks={tasks} onTransferStudents={handleTransferStudents} onAddActivity={handleAddActivity} />;
-        if (currentView === 'branch') return <BranchAnalytics />;
-        if (currentView === 'students') return <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} />;
+        if (currentRole === 'Manager' && currentView === 'branch') return <BranchAnalytics />;
+        if (currentView === 'students') return <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} currentUser={currentUser} />;
         if (currentView === 'tasks') return <TaskManager userRole="Manager" tasks={tasks} currentUser={currentUser} selectedTaskId={selectedTaskId} onUpdateTasks={handleUpdateTasks} onAddTask={handleAddTask} />;
         if (currentView === 'student-detail') return selectedStudent ? 
-             <StudentProfile {...studentProfileProps} student={selectedStudent} userRole="Manager" /> : <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} />;
+             <StudentProfile {...studentProfileProps} student={selectedStudent} userRole="Manager" /> : <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} currentUser={currentUser} />;
         return <ManagerDashboard activities={activities} tasks={tasks} onNavigate={handleNavigate} />;
     }
 
@@ -423,18 +492,44 @@ function App() {
     switch (currentView) {
       case 'dashboard': return <AdminDashboard activities={activities} tasks={tasks} students={students} />;
       case 'counselors': return <CounselorManagement onNavigate={handleNavigate} students={students} employees={employees} tasks={tasks} onTransferStudents={handleTransferStudents} />;
+      case 'accounts': return (
+        <AccountsManagement
+          onAdminAvatarUpdated={(row) => {
+            setAdminAvatar(row.avatar || '/CEO.png');
+            addNotification('Profile updated', 'Admin profile photo updated.', 'success');
+          }}
+          onAccountCreated={(row) =>
+            addNotification(
+              'Account created',
+              `${row.role} account created for ${row.email}.`,
+              'success'
+            )
+          }
+          onResetPassword={(row) =>
+            addNotification(
+              'Password reset sent',
+              `A reset link was sent to ${row.email} (${row.username}).`,
+              'success'
+            )
+          }
+        />
+      );
       case 'branch': return <BranchAnalytics />;
-      case 'students': return <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} />;
+      case 'students': return <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} currentUser={currentUser} />;
       case 'student-detail':
         return selectedStudent ? (
           <StudentProfile {...studentProfileProps} student={selectedStudent} userRole="Admin" />
         ) : (
-          <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} />
+          <StudentList onSelectStudent={handleSelectStudent} students={students} onUpdateStudent={handleUpdateStudent} onNavigate={handleNavigate} onAddActivity={handleAddActivity} userRole={currentRole} currentUser={currentUser} />
         );
       case 'tasks': return <TaskManager userRole="Admin" tasks={tasks} currentUser={currentUser} selectedTaskId={selectedTaskId} onUpdateTasks={handleUpdateTasks} onAddTask={handleAddTask} />;
       default: return <div className="text-center mt-20 text-slate-400">Under Construction</div>;
     }
   };
+
+  if (!isAuthenticated) {
+    return <LoginScreen onLoggedIn={() => setIsAuthenticated(true)} />;
+  }
 
   return (
     <>
@@ -443,6 +538,11 @@ function App() {
           onNavigate={handleNavigate} 
           currentRole={currentRole}
           onRoleChange={setCurrentRole}
+          userAvatar={headerAvatar}
+          onLogout={() => {
+            clearLoginSession();
+            setIsAuthenticated(false);
+          }}
       >
         {renderContent()}
       </Layout>

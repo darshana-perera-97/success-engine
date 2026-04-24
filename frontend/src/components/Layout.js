@@ -11,19 +11,114 @@ import {
   Command,
   LogOut,
   BarChart3,
-  UserCircle,
-  Shield,
-  Briefcase,
   MessageSquare,
   Globe,
   DollarSign,
   Calendar,
   UserCog,
   Menu,
-  X
+  X,
+  Contact
 } from "lucide-react";
-const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange }) => {
+const Layout = ({
+  children,
+  activeView,
+  onNavigate,
+  currentRole,
+  unreadMessageCount,
+  notifications = [],
+  onClearNotifications,
+  onRemoveNotification,
+  onLogout,
+  userAvatar,
+  userName,
+  userEmail,
+  userPhone,
+  userBranch,
+  onUpdateProfileAvatar,
+  onUpdateProfileContact
+}) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [selectedAvatarDataUrl, setSelectedAvatarDataUrl] = useState("");
+  const [editableEmail, setEditableEmail] = useState(userEmail || "");
+  const [editablePhone, setEditablePhone] = useState(userPhone || "");
+  const displayedAvatar = selectedAvatarDataUrl || userAvatar || "/canadian.png";
+  const handleProfileClose = () => {
+    setIsProfileOpen(false);
+    setProfileError("");
+    setSelectedAvatarDataUrl("");
+    setIsSavingProfile(false);
+    setEditableEmail(userEmail || "");
+    setEditablePhone(userPhone || "");
+  };
+  const handleProfileOpen = () => {
+    setEditableEmail(userEmail || "");
+    setEditablePhone(userPhone || "");
+    setProfileError("");
+    setIsProfileOpen(true);
+  };
+  const handleAvatarFileChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setProfileError("Please select an image file.");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setProfileError("Image must be less than 4MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setProfileError("");
+      setSelectedAvatarDataUrl(String(reader.result || ""));
+    };
+    reader.onerror = () => {
+      setProfileError("Failed to read selected image.");
+    };
+    reader.readAsDataURL(file);
+  };
+  const handleProfileSave = async () => {
+    setIsSavingProfile(true);
+    setProfileError("");
+    const isCounselor = currentRole === "Counselor";
+    const emailChanged = isCounselor && String(editableEmail || "").trim() !== String(userEmail || "").trim();
+    const phoneChanged = isCounselor && String(editablePhone || "").trim() !== String(userPhone || "").trim();
+    if (emailChanged || phoneChanged) {
+      if (!onUpdateProfileContact) {
+        setProfileError("Profile contact updates are not available.");
+        setIsSavingProfile(false);
+        return;
+      }
+      const contactResult = await onUpdateProfileContact({
+        email: String(editableEmail || "").trim(),
+        phone: String(editablePhone || "").trim()
+      });
+      if (!contactResult?.ok) {
+        setProfileError(contactResult?.error || "Failed to save profile contact.");
+        setIsSavingProfile(false);
+        return;
+      }
+    }
+    if (selectedAvatarDataUrl) {
+      if (!onUpdateProfileAvatar) {
+        setProfileError("Profile updates are not available.");
+        setIsSavingProfile(false);
+        return;
+      }
+      const avatarResult = await onUpdateProfileAvatar(selectedAvatarDataUrl);
+      if (!avatarResult?.ok) {
+        setProfileError(avatarResult?.error || "Failed to save profile image.");
+        setIsSavingProfile(false);
+        return;
+      }
+    }
+    handleProfileClose();
+  };
   const getNavItems = () => {
     switch (currentRole) {
       case "Student":
@@ -32,8 +127,8 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
           { id: "resume", label: "AI Resume", icon: /* @__PURE__ */ jsx(FileText, { size: 20 }) },
           { id: "calendar", label: "Book Session", icon: /* @__PURE__ */ jsx(Calendar, { size: 20 }) },
           { id: "finance", label: "My Finances", icon: /* @__PURE__ */ jsx(DollarSign, { size: 20 }) },
-          { id: "messages", label: "Messages", icon: /* @__PURE__ */ jsx(MessageSquare, { size: 20 }), badge: "1" },
-          { id: "tasks", label: "My Checklist", icon: /* @__PURE__ */ jsx(CheckSquare, { size: 20 }), badge: "2" }
+          { id: "messages", label: "Messages", icon: /* @__PURE__ */ jsx(MessageSquare, { size: 20 }), badge: unreadMessageCount > 0 ? String(unreadMessageCount) : "" },
+          { id: "tasks", label: "My Checklist", icon: /* @__PURE__ */ jsx(CheckSquare, { size: 20 }) }
         ];
       case "Counselor":
         return [
@@ -41,7 +136,7 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
           { id: "calendar", label: "Calendar", icon: /* @__PURE__ */ jsx(Calendar, { size: 20 }) },
           { id: "students", label: "My Students", icon: /* @__PURE__ */ jsx(Users, { size: 20 }) },
           { id: "university", label: "Uni Finder", icon: /* @__PURE__ */ jsx(Globe, { size: 20 }) },
-          { id: "messages", label: "Inbox", icon: /* @__PURE__ */ jsx(MessageSquare, { size: 20 }), badge: "3" },
+          { id: "messages", label: "Inbox", icon: /* @__PURE__ */ jsx(MessageSquare, { size: 20 }), badge: unreadMessageCount > 0 ? String(unreadMessageCount) : "" },
           { id: "tasks", label: "My Tasks", icon: /* @__PURE__ */ jsx(CheckSquare, { size: 20 }), badge: "5" }
         ];
       case "Manager":
@@ -55,6 +150,16 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
           { id: "messages", label: "Live Ops (Ghost)", icon: /* @__PURE__ */ jsx(MessageSquare, { size: 20 }) },
           { id: "tasks", label: "Escalations", icon: /* @__PURE__ */ jsx(CheckSquare, { size: 20 }), badge: "3" }
         ];
+      case "Team Lead":
+        return [
+          { id: "dashboard", label: "Command Center", icon: /* @__PURE__ */ jsx(LayoutDashboard, { size: 20 }) },
+          { id: "counselors", label: "Counselors", icon: /* @__PURE__ */ jsx(UserCog, { size: 20 }) },
+          { id: "calendar", label: "Team Calendar", icon: /* @__PURE__ */ jsx(Calendar, { size: 20 }) },
+          { id: "students", label: "All Students", icon: /* @__PURE__ */ jsx(Users, { size: 20 }) },
+          { id: "university", label: "Uni Database", icon: /* @__PURE__ */ jsx(Globe, { size: 20 }) },
+          { id: "messages", label: "Live Ops (Ghost)", icon: /* @__PURE__ */ jsx(MessageSquare, { size: 20 }) },
+          { id: "tasks", label: "Escalations", icon: /* @__PURE__ */ jsx(CheckSquare, { size: 20 }), badge: "3" }
+        ];
       case "Admin":
       default:
         return [
@@ -62,6 +167,7 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
           { id: "counselors", label: "Counselors", icon: /* @__PURE__ */ jsx(UserCog, { size: 20 }) },
           { id: "branch", label: "Branch Analytics", icon: /* @__PURE__ */ jsx(BarChart3, { size: 20 }) },
           { id: "students", label: "All Students", icon: /* @__PURE__ */ jsx(Users, { size: 20 }) },
+          { id: "accounts", label: "Accounts", icon: /* @__PURE__ */ jsx(Contact, { size: 20 }) },
           { id: "university", label: "Uni Database", icon: /* @__PURE__ */ jsx(Globe, { size: 20 }) },
           { id: "messages", label: "Omni-Channel", icon: /* @__PURE__ */ jsx(MessageSquare, { size: 20 }) }
         ];
@@ -115,7 +221,7 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
         ] })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "p-4 border-t border-gray-100", children: [
-        /* @__PURE__ */ jsx(
+        currentRole === "Admin" ? /* @__PURE__ */ jsx(
           NavItem,
           {
             icon: /* @__PURE__ */ jsx(Settings, { size: 20 }),
@@ -126,7 +232,7 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
               setIsMobileMenuOpen(false);
             }
           }
-        ),
+        ) : null,
         /* @__PURE__ */ jsx(
           NavItem,
           {
@@ -134,6 +240,8 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
             label: "Logout",
             isActive: false,
             onClick: () => {
+              onLogout?.();
+              setIsMobileMenuOpen(false);
             },
             className: "text-rose-600 hover:bg-rose-50 hover:text-rose-700"
           }
@@ -170,7 +278,7 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
         ] })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "p-4 border-t border-gray-100", children: [
-        /* @__PURE__ */ jsx(
+        currentRole === "Admin" ? /* @__PURE__ */ jsx(
           NavItem,
           {
             icon: /* @__PURE__ */ jsx(Settings, { size: 20 }),
@@ -178,7 +286,7 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
             isActive: activeView === "settings",
             onClick: () => onNavigate("settings")
           }
-        ),
+        ) : null,
         /* @__PURE__ */ jsx(
           NavItem,
           {
@@ -186,6 +294,7 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
             label: "Logout",
             isActive: false,
             onClick: () => {
+              onLogout?.();
             },
             className: "text-rose-600 hover:bg-rose-50 hover:text-rose-700"
           }
@@ -221,52 +330,93 @@ const Layout = ({ children, activeView, onNavigate, currentRole, onRoleChange })
               }
             )
           ] }),
-          /* @__PURE__ */ jsxs("button", { className: "relative p-2 text-gray-500 hover:text-slate-900 hover:bg-gray-100 rounded-full transition-colors", children: [
-            /* @__PURE__ */ jsx(Bell, { size: 20, strokeWidth: 1.5 }),
-            /* @__PURE__ */ jsx("span", { className: "absolute top-2 right-2 h-2 w-2 bg-rose-500 rounded-full border border-white" })
+          /* @__PURE__ */ jsxs("div", { className: "relative", children: [
+            /* @__PURE__ */ jsxs("button", { className: "relative p-2 text-gray-500 hover:text-slate-900 hover:bg-gray-100 rounded-full transition-colors", onClick: () => setIsNotificationsOpen((prev) => !prev), children: [
+              /* @__PURE__ */ jsx(Bell, { size: 20, strokeWidth: 1.5 }),
+              notifications.length > 0 && /* @__PURE__ */ jsx("span", { className: "absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border border-white", children: notifications.length > 99 ? "99+" : notifications.length })
+            ] }),
+            isNotificationsOpen && /* @__PURE__ */ jsxs("div", { className: "absolute right-0 mt-2 w-[360px] max-w-[92vw] bg-white border border-gray-200 rounded-xl shadow-2xl z-[130] overflow-hidden", children: [
+              /* @__PURE__ */ jsxs("div", { className: "px-4 py-3 border-b border-gray-100 flex items-center justify-between", children: [
+                /* @__PURE__ */ jsxs("h4", { className: "text-sm font-semibold text-slate-900 flex items-center gap-2", children: [
+                  /* @__PURE__ */ jsx(Bell, { size: 14 }),
+                  "Notifications"
+                ] }),
+                /* @__PURE__ */ jsx("button", { type: "button", className: "text-xs text-slate-500 hover:text-slate-700", onClick: () => onClearNotifications?.(), children: "Clear all" })
+              ] }),
+              notifications.length === 0 ? /* @__PURE__ */ jsx("div", { className: "px-4 py-8 text-center text-sm text-slate-400", children: "No notifications yet." }) : /* @__PURE__ */ jsx("div", { className: "max-h-96 overflow-y-auto divide-y divide-gray-100", children: notifications.map((n) => /* @__PURE__ */ jsxs("div", { className: "px-4 py-3 flex items-start gap-3", children: [
+                /* @__PURE__ */ jsx("div", { className: `mt-0.5 w-2 h-2 rounded-full ${n.type === "success" ? "bg-emerald-500" : n.type === "error" ? "bg-rose-500" : n.type === "warning" ? "bg-amber-500" : "bg-indigo-500"}` }),
+                /* @__PURE__ */ jsxs("div", { className: "flex-1 min-w-0", children: [
+                  /* @__PURE__ */ jsx("p", { className: "text-sm font-semibold text-slate-900", children: n.title }),
+                  /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500 mt-0.5", children: n.message })
+                ] }),
+                /* @__PURE__ */ jsx("button", { type: "button", className: "text-slate-400 hover:text-slate-600", onClick: () => onRemoveNotification?.(n.id), children: /* @__PURE__ */ jsx(X, { size: 14 }) })
+              ] }, n.id)) })
+            ] })
           ] }),
-          /* @__PURE__ */ jsxs("div", { className: "relative group", children: [
-            /* @__PURE__ */ jsxs("button", { className: "flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all", children: [
+          /* @__PURE__ */ jsx("div", { className: "relative", children: /* @__PURE__ */ jsxs("button", { className: "flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full border border-transparent", onClick: handleProfileOpen, children: [
               /* @__PURE__ */ jsx("div", { className: "h-8 w-8 rounded-full border-2 border-white shadow-sm ring-1 ring-gray-100 overflow-hidden flex items-center justify-center bg-white", children: /* @__PURE__ */ jsx(
                 "img",
                 {
-                  src: "/canadian.png",
-                  alt: "User Role",
+                    src: userAvatar || "/canadian.png",
+                  alt: userName || "User profile",
                   className: "w-full h-full object-cover",
-                  referrerPolicy: "no-referrer"
+                  referrerPolicy: "no-referrer",
+                  onError: (event) => {
+                    event.currentTarget.onerror = null;
+                    event.currentTarget.src = "/canadian.png";
+                  }
                 }
               ) }),
               /* @__PURE__ */ jsxs("div", { className: "text-left hidden md:block", children: [
                 /* @__PURE__ */ jsx("p", { className: "text-xs font-semibold text-slate-900 leading-tight", children: currentRole }),
-                /* @__PURE__ */ jsx("p", { className: "text-[10px] text-slate-500 leading-tight", children: "Switch View" })
+                /* @__PURE__ */ jsx("p", { className: "text-[10px] text-slate-500 leading-tight", children: userName || "Switch View" })
               ] })
-            ] }),
-            /* @__PURE__ */ jsx("div", { className: "absolute right-0 top-full pt-2 w-48 hidden group-hover:block animate-in fade-in zoom-in-95 duration-150 origin-top-right z-[100]", children: /* @__PURE__ */ jsxs("div", { className: "bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden p-1", children: [
-              /* @__PURE__ */ jsx(RoleOption, { role: "Student", current: currentRole, onClick: onRoleChange, icon: /* @__PURE__ */ jsx(UserCircle, { size: 14 }) }),
-              /* @__PURE__ */ jsx(RoleOption, { role: "Counselor", current: currentRole, onClick: onRoleChange, icon: /* @__PURE__ */ jsx(Briefcase, { size: 14 }) }),
-              /* @__PURE__ */ jsx(RoleOption, { role: "Manager", current: currentRole, onClick: onRoleChange, icon: /* @__PURE__ */ jsx(BarChart3, { size: 14 }) }),
-              /* @__PURE__ */ jsx(RoleOption, { role: "Admin", current: currentRole, onClick: onRoleChange, icon: /* @__PURE__ */ jsx(Shield, { size: 14 }) })
             ] }) })
-          ] })
         ] })
       ] }),
       /* @__PURE__ */ jsx("div", { className: "flex-1 overflow-auto p-4 lg:p-8", children: /* @__PURE__ */ jsx("div", { className: "max-w-7xl mx-auto h-full", children }) })
-    ] })
+    ] }),
+    isProfileOpen ? /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-[120] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4", onClick: handleProfileClose, children: /* @__PURE__ */ jsxs("div", { className: "w-full max-w-md bg-white rounded-xl border border-gray-200 shadow-2xl overflow-hidden", onClick: (e) => e.stopPropagation(), children: [
+      /* @__PURE__ */ jsxs("div", { className: "px-5 py-4 border-b border-gray-100 bg-slate-50", children: [
+        /* @__PURE__ */ jsx("h3", { className: "text-base font-semibold text-slate-900", children: "My Profile" }),
+        /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500 mt-1", children: "View your account details and update profile photo." })
+      ] }),
+      /* @__PURE__ */ jsxs("div", { className: "p-5 space-y-4", children: [
+        /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-4", children: [
+          /* @__PURE__ */ jsx("img", { src: displayedAvatar, alt: userName || "Profile", className: "w-16 h-16 rounded-full object-cover border border-gray-200", referrerPolicy: "no-referrer", onError: (event) => {
+            event.currentTarget.onerror = null;
+            event.currentTarget.src = "/canadian.png";
+          } }),
+          /* @__PURE__ */ jsxs("label", { className: "inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer", children: [
+            "Change Photo",
+            /* @__PURE__ */ jsx("input", { type: "file", accept: "image/*", className: "hidden", onChange: handleAvatarFileChange })
+          ] })
+        ] }),
+        profileError ? /* @__PURE__ */ jsx("div", { className: "text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2", children: profileError }) : null,
+        /* @__PURE__ */ jsxs("div", { className: "space-y-2 text-sm", children: [
+          /* @__PURE__ */ jsxs("p", { className: "text-slate-700", children: [/* @__PURE__ */ jsx("span", { className: "font-semibold text-slate-900", children: "Name: " }), userName || "-" ] }),
+          /* @__PURE__ */ jsxs("p", { className: "text-slate-700", children: [/* @__PURE__ */ jsx("span", { className: "font-semibold text-slate-900", children: "Role: " }), currentRole || "-" ] }),
+          currentRole === "Counselor" ? /* @__PURE__ */ jsxs("div", { className: "space-y-3", children: [
+            /* @__PURE__ */ jsxs("div", { children: [
+              /* @__PURE__ */ jsx("label", { className: "text-xs font-semibold text-slate-500 uppercase block mb-1", children: "Email" }),
+              /* @__PURE__ */ jsx("input", { type: "email", value: editableEmail, onChange: (event) => setEditableEmail(event.target.value), className: "w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-md outline-none focus:border-indigo-500" })
+            ] }),
+            /* @__PURE__ */ jsxs("div", { children: [
+              /* @__PURE__ */ jsx("label", { className: "text-xs font-semibold text-slate-500 uppercase block mb-1", children: "Contact Number" }),
+              /* @__PURE__ */ jsx("input", { type: "text", value: editablePhone, onChange: (event) => setEditablePhone(event.target.value), className: "w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-md outline-none focus:border-indigo-500", placeholder: "+94 77 123 4567" })
+            ] })
+          ] }) : /* @__PURE__ */ jsxs("p", { className: "text-slate-700 break-all", children: [/* @__PURE__ */ jsx("span", { className: "font-semibold text-slate-900", children: "Email: " }), userEmail || "-" ] }),
+          /* @__PURE__ */ jsxs("p", { className: "text-slate-700", children: [/* @__PURE__ */ jsx("span", { className: "font-semibold text-slate-900", children: "Branch: " }), userBranch || "-" ] })
+        ] }),
+        /* @__PURE__ */ jsxs("div", { className: "flex justify-end gap-2 pt-2", children: [
+          /* @__PURE__ */ jsx("button", { type: "button", onClick: handleProfileClose, className: "px-3 py-1.5 text-xs font-semibold rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50", children: "Close" }),
+          /* @__PURE__ */ jsx("button", { type: "button", onClick: handleProfileSave, disabled: isSavingProfile, className: "px-3 py-1.5 text-xs font-semibold rounded-md bg-[#0F172A] text-white hover:bg-slate-800 disabled:opacity-60", children: isSavingProfile ? "Saving..." : "Save photo" })
+        ] })
+      ] })
+    ] }) }) : null
+    
   ] });
 };
-const RoleOption = ({ role, current, onClick, icon }) => /* @__PURE__ */ jsxs(
-  "button",
-  {
-    onClick: () => onClick(role),
-    className: `w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors
-            ${current === role ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}
-        `,
-    children: [
-      icon,
-      role
-    ]
-  }
-);
 const NavItem = ({ icon, label, isActive, onClick, badge, className }) => {
   return /* @__PURE__ */ jsxs(
     "button",

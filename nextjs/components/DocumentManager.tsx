@@ -176,7 +176,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({ student, userR
                                                                 <a href={uploadedFile.url} target="_blank" rel="noopener noreferrer" title="Preview" className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900">
                                                                     <Eye size={16} />
                                                                 </a>
-                                                                <a href={uploadedFile.url} download={uploadedFile.name} title="Download" className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900">
+                                                                <a href={uploadedFile.url} target="_blank" rel="noopener noreferrer" title="Download" className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900">
                                                                     <Download size={16} />
                                                                 </a>
                                                             </>

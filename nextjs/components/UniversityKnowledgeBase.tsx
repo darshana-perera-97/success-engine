@@ -1,15 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { UNIVERSITY_PROGRAMS, STUDENTS } from '../constants';
 import { UniversityProgram, Country } from '../types';
-import { Search, BookOpen, MapPin, GraduationCap, CheckCircle, ArrowRight, Loader2, Sparkles } from 'lucide-react';
+import { Search, BookOpen, MapPin, GraduationCap, CheckCircle, ArrowRight, Loader2, Sparkles, EyeOff, Eye, Trash2, PlusCircle } from 'lucide-react';
 import { Button } from './Button';
 
 interface UniversityKnowledgeBaseProps {
     onNavigate?: (view: string) => void;
+    currentRole?: string;
 }
 
-export const UniversityKnowledgeBase: React.FC<UniversityKnowledgeBaseProps> = () => {
+export const UniversityKnowledgeBase: React.FC<UniversityKnowledgeBaseProps> = ({ currentRole }) => {
     // --- Filters State ---
+    const [programs, setPrograms] = useState<UniversityProgram[]>(UNIVERSITY_PROGRAMS as UniversityProgram[]);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCountry, setSelectedCountry] = useState<Country | 'All'>('All');
     const [maxBudget, setMaxBudget] = useState<string>('');
@@ -20,10 +22,24 @@ export const UniversityKnowledgeBase: React.FC<UniversityKnowledgeBaseProps> = (
     const [selectedProgram, setSelectedProgram] = useState<UniversityProgram | null>(null);
     const [selectedStudentId, setSelectedStudentId] = useState<string>('');
     const [applyStep, setApplyStep] = useState<'select' | 'processing' | 'success'>('select');
+    const [newProgram, setNewProgram] = useState({
+        university: '',
+        programName: '',
+        country: '',
+        tuition: '',
+        currency: 'USD',
+        duration: '',
+        intake: '',
+        minIELTS: '6',
+        minGPA: '2.5',
+        ranking: '500',
+    });
+    const canManagePrograms = currentRole === 'Manager';
 
     // --- Filter Logic ---
     const filteredPrograms = useMemo(() => {
-        return UNIVERSITY_PROGRAMS.filter(prog => {
+        return programs.filter((prog: any) => {
+            if (!canManagePrograms && prog.isHidden) return false;
             const matchesSearch = prog.programName.toLowerCase().includes(searchQuery.toLowerCase()) || 
                                   prog.university.toLowerCase().includes(searchQuery.toLowerCase());
             const matchesCountry = selectedCountry === 'All' || prog.country === selectedCountry;
@@ -32,7 +48,7 @@ export const UniversityKnowledgeBase: React.FC<UniversityKnowledgeBaseProps> = (
 
             return matchesSearch && matchesCountry && matchesBudget && matchesIelts;
         });
-    }, [searchQuery, selectedCountry, maxBudget, ieltsFilter]);
+    }, [programs, searchQuery, selectedCountry, maxBudget, ieltsFilter, canManagePrograms]);
 
     // --- Handlers ---
     const handleApplyClick = (program: UniversityProgram) => {
@@ -57,8 +73,61 @@ export const UniversityKnowledgeBase: React.FC<UniversityKnowledgeBaseProps> = (
         setSelectedProgram(null);
     };
 
+    const resetNewProgramForm = () => {
+        setNewProgram({
+            university: '',
+            programName: '',
+            country: '',
+            tuition: '',
+            currency: 'USD',
+            duration: '',
+            intake: '',
+            minIELTS: '6',
+            minGPA: '2.5',
+            ranking: '500',
+        });
+    };
+
+    const handleAddProgram = () => {
+        if (!canManagePrograms) return;
+        const university = newProgram.university.trim();
+        const programName = newProgram.programName.trim();
+        const country = newProgram.country.trim() as Country;
+        const duration = newProgram.duration.trim();
+        const intake = newProgram.intake.trim();
+        if (!university || !programName || !country || !duration || !intake) return;
+        const added: UniversityProgram & { isHidden?: boolean } = {
+            id: `UP-${Date.now()}`,
+            university,
+            programName,
+            country,
+            tuition: Number(newProgram.tuition) || 0,
+            currency: newProgram.currency.trim().toUpperCase() || 'USD',
+            duration,
+            intake,
+            minGPA: Number(newProgram.minGPA) || 0,
+            minIELTS: Number(newProgram.minIELTS) || 0,
+            ranking: Math.floor(Number(newProgram.ranking) || 9999),
+            tags: [],
+            logoColor: 'bg-slate-700',
+            isHidden: false,
+        };
+        setPrograms((prev) => [added as UniversityProgram, ...prev]);
+        resetNewProgramForm();
+    };
+
+    const handleToggleVisibility = (programId: string) => {
+        if (!canManagePrograms) return;
+        setPrograms((prev: any[]) => prev.map((row: any) => row.id === programId ? { ...row, isHidden: !row.isHidden } : row));
+    };
+
+    const handleRemoveProgram = (programId: string) => {
+        if (!canManagePrograms) return;
+        setPrograms((prev) => prev.filter((row) => row.id !== programId));
+    };
+
     return (
-        <div className="space-y-6 animate-in fade-in duration-500 h-[calc(100vh-120px)] flex flex-col">
+        <div className="space-y-6 animate-in fade-in duration-500">
             <div className="flex justify-between items-end shrink-0">
                 <div>
                     <h1 className="text-2xl font-semibold tracking-tight text-[#0F172A]">University Knowledge Base</h1>
@@ -129,72 +198,70 @@ export const UniversityKnowledgeBase: React.FC<UniversityKnowledgeBaseProps> = (
             </div>
 
             {/* Results Grid */}
-            <div className="flex-1 overflow-y-auto min-h-0">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-6">
-                    {filteredPrograms.length === 0 ? (
-                        <div className="col-span-full text-center py-20 text-slate-400">
-                            <BookOpen size={48} className="mx-auto mb-4 opacity-20" />
-                            <p>No programs match your criteria.</p>
-                            <p className="text-sm">Try adjusting the budget or country filters.</p>
-                        </div>
-                    ) : (
-                        filteredPrograms.map(prog => (
-                            <div key={prog.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col group">
-                                <div className={`h-24 ${prog.logoColor} p-6 flex items-center justify-center relative overflow-hidden`}>
-                                     {/* Abstract Pattern */}
-                                     <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white via-transparent to-transparent"></div>
-                                     <h3 className="text-white font-bold text-xl tracking-tight relative z-10 text-center">{prog.university}</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-6">
+                {filteredPrograms.length === 0 ? (
+                    <div className="col-span-full text-center py-20 text-slate-400">
+                        <BookOpen size={48} className="mx-auto mb-4 opacity-20" />
+                        <p>No programs match your criteria.</p>
+                        <p className="text-sm">Try adjusting the budget or country filters.</p>
+                    </div>
+                ) : (
+                    filteredPrograms.map(prog => (
+                        <div key={prog.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col group">
+                            <div className={`h-24 ${prog.logoColor} p-6 flex items-center justify-center relative overflow-hidden`}>
+                                 {/* Abstract Pattern */}
+                                 <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white via-transparent to-transparent"></div>
+                                 <h3 className="text-white font-bold text-xl tracking-tight relative z-10 text-center">{prog.university}</h3>
+                            </div>
+                            
+                            <div className="p-5 flex-1 flex flex-col">
+                                <div className="flex justify-between items-start mb-2">
+                                    <h4 className="font-bold text-slate-900 text-lg leading-tight">{prog.programName}</h4>
+                                    <span className="text-xs font-bold px-2 py-1 bg-slate-100 text-slate-600 rounded flex items-center shrink-0 ml-2">
+                                        #{prog.ranking} Rank
+                                    </span>
                                 </div>
                                 
-                                <div className="p-5 flex-1 flex flex-col">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <h4 className="font-bold text-slate-900 text-lg leading-tight">{prog.programName}</h4>
-                                        <span className="text-xs font-bold px-2 py-1 bg-slate-100 text-slate-600 rounded flex items-center shrink-0 ml-2">
-                                            #{prog.ranking} Rank
-                                        </span>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-2 text-sm text-slate-500 mb-4">
-                                        <MapPin size={14} /> {prog.country}
-                                    </div>
+                                <div className="flex items-center gap-2 text-sm text-slate-500 mb-4">
+                                    <MapPin size={14} /> {prog.country}
+                                </div>
 
-                                    <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-                                        <div className="bg-gray-50 p-2 rounded border border-gray-100">
-                                            <span className="text-xs text-slate-400 block uppercase">Tuition</span>
-                                            <span className="font-semibold text-slate-900">{prog.currency} {prog.tuition.toLocaleString()}</span>
-                                        </div>
-                                        <div className="bg-gray-50 p-2 rounded border border-gray-100">
-                                            <span className="text-xs text-slate-400 block uppercase">Intake</span>
-                                            <span className="font-semibold text-slate-900">{prog.intake}</span>
-                                        </div>
-                                        <div className="bg-gray-50 p-2 rounded border border-gray-100">
-                                            <span className="text-xs text-slate-400 block uppercase">Req. IELTS</span>
-                                            <span className="font-semibold text-slate-900">{prog.minIELTS}</span>
-                                        </div>
-                                         <div className="bg-gray-50 p-2 rounded border border-gray-100">
-                                            <span className="text-xs text-slate-400 block uppercase">Duration</span>
-                                            <span className="font-semibold text-slate-900">{prog.duration}</span>
-                                        </div>
+                                <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+                                    <div className="bg-gray-50 p-2 rounded border border-gray-100">
+                                        <span className="text-xs text-slate-400 block uppercase">Tuition</span>
+                                        <span className="font-semibold text-slate-900">{prog.currency} {prog.tuition.toLocaleString()}</span>
                                     </div>
-
-                                    <div className="flex flex-wrap gap-2 mb-6">
-                                        {prog.tags.map(tag => (
-                                            <span key={tag} className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100 font-medium">
-                                                {tag}
-                                            </span>
-                                        ))}
+                                    <div className="bg-gray-50 p-2 rounded border border-gray-100">
+                                        <span className="text-xs text-slate-400 block uppercase">Intake</span>
+                                        <span className="font-semibold text-slate-900">{prog.intake}</span>
                                     </div>
-
-                                    <div className="mt-auto pt-4 border-t border-gray-100">
-                                        <Button className="w-full group-hover:bg-indigo-600 group-hover:text-white transition-colors" onClick={() => handleApplyClick(prog)}>
-                                            Apply Now <ArrowRight size={16} className="ml-2" />
-                                        </Button>
+                                    <div className="bg-gray-50 p-2 rounded border border-gray-100">
+                                        <span className="text-xs text-slate-400 block uppercase">Req. IELTS</span>
+                                        <span className="font-semibold text-slate-900">{prog.minIELTS}</span>
+                                    </div>
+                                     <div className="bg-gray-50 p-2 rounded border border-gray-100">
+                                        <span className="text-xs text-slate-400 block uppercase">Duration</span>
+                                        <span className="font-semibold text-slate-900">{prog.duration}</span>
                                     </div>
                                 </div>
+
+                                <div className="flex flex-wrap gap-2 mb-6">
+                                    {prog.tags.map(tag => (
+                                        <span key={tag} className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100 font-medium">
+                                            {tag}
+                                        </span>
+                                    ))}
+                                </div>
+
+                                <div className="mt-auto pt-4 border-t border-gray-100">
+                                    <Button className="w-full group-hover:bg-indigo-600 group-hover:text-white transition-colors" onClick={() => handleApplyClick(prog)}>
+                                        Apply Now <ArrowRight size={16} className="ml-2" />
+                                    </Button>
+                                </div>
                             </div>
-                        ))
-                    )}
-                </div>
+                        </div>
+                    ))
+                )}
             </div>
 
             {/* Application Simulation Modal */}

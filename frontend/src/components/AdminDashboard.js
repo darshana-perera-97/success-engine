@@ -3,7 +3,7 @@ import React from "react";
 import { Dashboard } from "./Dashboard";
 import { ActivityFeed } from "./ActivityFeed";
 import { Sparkles, Send } from "lucide-react";
-const AdminDashboard = ({ activities, tasks, students }) => {
+const AdminDashboard = ({ activities, tasks, students, invoices = [] }) => {
   const [isTyping, setIsTyping] = React.useState(false);
   const [aiResponse, setAiResponse] = React.useState(null);
   const [inputValue, setInputValue] = React.useState("");
@@ -182,7 +182,7 @@ const AdminDashboard = ({ activities, tasks, students }) => {
             )
           ] })
         ] }),
-        /* @__PURE__ */ jsx(Dashboard, {})
+        /* @__PURE__ */ jsx(Dashboard, { students, invoices })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "bg-white border border-gray-200 rounded-xl p-6 shadow-sm flex flex-col h-full", children: [
         /* @__PURE__ */ jsx("h3", { className: "font-bold text-slate-900 mb-4", children: "Global Audit Log" }),

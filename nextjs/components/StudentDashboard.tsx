@@ -1,15 +1,33 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Student, Task } from '../types';
 import { EMPLOYEES } from '../constants';
+import { COUNTRY_CHECKLISTS } from '../constants';
 import { CheckCircle, Upload, AlertTriangle, Calendar, Info, Mail, Phone, X, CheckSquare, FileText, Download, Eye } from 'lucide-react';
 import { Button } from './Button';
 
 export const StudentDashboard: React.FC<{ 
     student: Student, 
     onNavigate: (view: string) => void,
-    tasks?: Task[]
-}> = ({ student, onNavigate, tasks = [] }) => {
+    tasks?: Task[],
+    onUploadDocument?: (payload: {
+        studentId: string;
+        dataUrl: string;
+        fileName: string;
+        docType: string;
+        phase: number;
+        tier: string;
+    }) => Promise<{ ok: boolean; error?: string }>
+}> = ({ student, onNavigate, tasks = [], onUploadDocument }) => {
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [selectedDocumentType, setSelectedDocumentType] = useState('');
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [uploadError, setUploadError] = useState('');
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const checklist = COUNTRY_CHECKLISTS[student.country] || COUNTRY_CHECKLISTS.Default || [];
+    const documentTypeOptions = Array.from(
+        new Set(checklist.flatMap((category) => category.items.map((item) => item.docType)))
+    );
 
     const counselor = EMPLOYEES.find(e => e.id === student.counselor) || { 
         name: 'Sarah Jenkins', 
@@ -53,6 +71,81 @@ export const StudentDashboard: React.FC<{
         if (a.priority !== 'High' && b.priority === 'High') return 1;
         return 0;
     });
+
+    const closeUploadModal = () => {
+        setIsUploadModalOpen(false);
+        setSelectedDocumentType('');
+        setSelectedFile(null);
+        setUploadError('');
+        setIsUploading(false);
+    };
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0] || null;
+        setSelectedFile(file);
+        setUploadError('');
+    };
+
+    const handleUploadSubmit = async () => {
+        if (!selectedDocumentType) {
+            setUploadError('Please choose a document type.');
+            return;
+        }
+        if (!selectedFile) {
+            setUploadError('Please choose a file to upload.');
+            return;
+        }
+
+        const allowedTypes = new Set([
+            'application/pdf',
+            'image/png',
+            'image/jpeg',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ]);
+        if (!allowedTypes.has(selectedFile.type)) {
+            setUploadError('Unsupported format. Use PDF, JPG, PNG, DOC, or DOCX.');
+            return;
+        }
+        if (selectedFile.size > 10 * 1024 * 1024) {
+            setUploadError('File must be under 10MB.');
+            return;
+        }
+
+        setUploadError('');
+        setIsUploading(true);
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error('read_error'));
+            reader.readAsDataURL(selectedFile);
+        }).catch(() => '');
+
+        if (!dataUrl) {
+            setIsUploading(false);
+            setUploadError('Unable to read file. Try again.');
+            return;
+        }
+
+        if (onUploadDocument) {
+            const result = await onUploadDocument({
+                studentId: student.id,
+                dataUrl,
+                fileName: selectedFile.name,
+                docType: selectedDocumentType,
+                phase: 1,
+                tier: 'Global'
+            });
+            if (!result.ok) {
+                setIsUploading(false);
+                setUploadError(result.error || 'Failed to upload document.');
+                return;
+            }
+        }
+
+        setIsUploading(false);
+        closeUploadModal();
+    };
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-10">
@@ -296,22 +389,52 @@ export const StudentDashboard: React.FC<{
             {/* Upload Modal */}
             {isUploadModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95">
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-2xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-lg text-slate-900">Upload Documents</h3>
-                            <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                            <button onClick={closeUploadModal} className="text-slate-400 hover:text-slate-600">
                                 <X size={20} />
                             </button>
                         </div>
-                        <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors cursor-pointer">
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Document Type</label>
+                        <select
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            value={selectedDocumentType}
+                            onChange={(event) => {
+                                setSelectedDocumentType(event.target.value);
+                                setUploadError('');
+                            }}
+                        >
+                            <option value="">Select a document type</option>
+                            {documentTypeOptions.map((docType) => (
+                                <option key={docType} value={docType}>{docType}</option>
+                            ))}
+                        </select>
+                        <div
+                            className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors cursor-pointer"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
                             <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-3">
                                 <Upload size={24} />
                             </div>
-                            <p className="text-sm font-semibold text-slate-900">Click to upload or drag and drop</p>
-                            <p className="text-xs text-slate-500 mt-1">PDF, JPG or PNG (max. 5MB)</p>
+                            <p className="text-sm font-semibold text-slate-900">
+                                {selectedFile ? selectedFile.name : 'Click to choose a document'}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">PDF, JPG, PNG, DOC or DOCX (max. 10MB)</p>
                         </div>
-                        <div className="mt-4 flex justify-end">
-                            <Button variant="ghost" onClick={() => setIsUploadModalOpen(false)}>Cancel</Button>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                            onChange={handleFileChange}
+                        />
+                        {uploadError && <p className="mt-3 text-xs text-rose-600">{uploadError}</p>}
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button variant="ghost" onClick={closeUploadModal}>Cancel</Button>
+                            <Button onClick={handleUploadSubmit} disabled={isUploading}>
+                                {isUploading ? 'Uploading...' : 'Upload'}
+                            </Button>
                         </div>
                     </div>
                 </div>

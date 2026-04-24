@@ -2,15 +2,20 @@ import { jsx, jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from "react";
 import { STUDENTS } from "../constants";
 import { Button } from "./Button";
-import { ChevronLeft, ChevronRight, Clock, User, CheckCircle, AlertTriangle, Video, Settings, X, Save } from "lucide-react";
-const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointment, currentRole, currentUser, employees = [], onUpdateEmployee }) => {
+import { ChevronLeft, ChevronRight, Clock, User, CheckCircle, AlertTriangle, Video } from "lucide-react";
+const CalendarScheduler = ({ appointments, bookingBlocks = [], onBookAppointment, onUpdateAppointment, currentRole, currentUser, employees = [], meetingSettings, onAddBusyBooking, onDeleteBusyBooking }) => {
   const [currentDate, setCurrentDate] = useState(/* @__PURE__ */ new Date());
   const [selectedDate, setSelectedDate] = useState(/* @__PURE__ */ new Date());
   const [selectedCounselorId, setSelectedCounselorId] = useState("");
   const [bookingTime, setBookingTime] = useState(null);
   const [bookingType, setBookingType] = useState("Counseling");
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [tempAvailability, setTempAvailability] = useState({ days: [1, 2, 3, 4, 5], startHour: 9, endHour: 17 });
+  const [busyDate, setBusyDate] = useState("");
+  const [busyStartTime, setBusyStartTime] = useState("09:00");
+  const [busyEndTime, setBusyEndTime] = useState("10:00");
+  const [busyReason, setBusyReason] = useState("Leave");
+  const [busyReasonOther, setBusyReasonOther] = useState("");
+  const [busyError, setBusyError] = useState("");
+  const [isSavingBusy, setIsSavingBusy] = useState(false);
   const [outcomeModalOpen, setOutcomeModalOpen] = useState(false);
   const [selectedAptId, setSelectedAptId] = useState(null);
   const [outcomeStatus, setOutcomeStatus] = useState("Completed");
@@ -24,13 +29,6 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
     } else if (currentRole === "Counselor") {
       if (currentUser.id && selectedCounselorId !== currentUser.id) {
         setSelectedCounselorId(currentUser.id);
-      }
-      const emp = employees.find((e) => e.id === currentUser.id);
-      if (emp?.availability) {
-        const isDifferent = JSON.stringify(emp.availability) !== JSON.stringify(tempAvailability);
-        if (isDifferent) {
-          setTempAvailability(emp.availability);
-        }
       }
     }
   }, [currentRole, currentUser, employees]);
@@ -51,16 +49,47 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
   };
   const getCounselor = (id) => employees.find((e) => e.id === id);
   const getStudent = (id) => STUDENTS.find((s) => s.id === id);
+  const toSriLankaTimestamp = (dateStr, timeStr) => {
+    return new Date(`${dateStr}T${timeStr}:00+05:30`).getTime();
+  };
+  const toMinutes = (value) => {
+    const [h, m] = String(value || "00:00").split(":").map((v) => Number(v));
+    return h * 60 + m;
+  };
+  const isRangeOverlap = (startA, endA, startB, endB) => startA < endB && startB < endA;
   const generateTimeSlots = (date, counselorId) => {
-    const counselor = getCounselor(counselorId);
-    if (!counselor?.availability) return [];
     const dayOfWeek = date.getDay();
-    if (!counselor.availability.days.includes(dayOfWeek)) return [];
+    const activeSettings = meetingSettings || {
+      meetingDurationMinutes: 30,
+      daySchedules: {
+        0: { isOpen: true, startHour: 8, endHour: 17 },
+        1: { isOpen: true, startHour: 8, endHour: 17 },
+        2: { isOpen: true, startHour: 8, endHour: 17 },
+        3: { isOpen: true, startHour: 8, endHour: 17 },
+        4: { isOpen: true, startHour: 8, endHour: 17 },
+        5: { isOpen: true, startHour: 8, endHour: 17 },
+        6: { isOpen: true, startHour: 8, endHour: 17 }
+      }
+    };
+    const daySchedule = activeSettings.daySchedules?.[dayOfWeek];
+    if (!daySchedule || daySchedule.isOpen === false) return [];
     const slots = [];
-    const { startHour, endHour } = counselor.availability;
+    const { startHour, endHour } = daySchedule;
     const dateStr = formatDate(date);
     const dayAppointments = appointments.filter((a) => a.counselorId === counselorId && a.date === dateStr && a.status !== "Cancelled");
+    const dayBusyBlocks = bookingBlocks.filter((block) => block.counselorId === counselorId && block.date === dateStr);
+    const slotDuration = Number(meetingSettings?.meetingDurationMinutes || 30);
+    const minStudentBookingTime = Date.now() + 30 * 60 * 1e3;
     const isBooked = (slotTime) => {
+      const slotStart = toMinutes(slotTime);
+      const slotEnd = slotStart + slotDuration;
+      if (currentRole === "Student" && toSriLankaTimestamp(dateStr, slotTime) < minStudentBookingTime) {
+        return true;
+      }
+      const blockedByBusy = dayBusyBlocks.some((block) => {
+        return isRangeOverlap(slotStart, slotEnd, toMinutes(block.startTime), toMinutes(block.endTime));
+      });
+      if (blockedByBusy) return true;
       return dayAppointments.some((a) => {
         return a.time === slotTime;
       });
@@ -77,48 +106,98 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
     }
     return slots;
   };
-  const handleBook = () => {
+  const handleBook = async () => {
     if (!selectedDate || !bookingTime || !selectedCounselorId) return;
+    if (currentRole === "Student") {
+      const upcomingCount = appointments.filter((a) => a.studentId === currentUser.id && a.status === "Scheduled" && /* @__PURE__ */ new Date(`${a.date}T${a.time}`) > /* @__PURE__ */ new Date()).length;
+      if (upcomingCount >= 3) {
+        alert("You can only have up to 3 upcoming meetings.");
+        return;
+      }
+    }
+    const selectedDateStr = formatDate(selectedDate);
+    const minStudentBookingTime = Date.now() + 30 * 60 * 1e3;
+    if (currentRole === "Student" && toSriLankaTimestamp(selectedDateStr, bookingTime) < minStudentBookingTime) {
+      alert("Bookings must be at least 30 minutes in the future (Sri Lanka time).");
+      return;
+    }
     const newApt = {
       id: `APT-${Date.now()}`,
       counselorId: selectedCounselorId,
       studentId: currentUser.id,
       title: `${bookingType} Session`,
-      date: formatDate(selectedDate),
+      date: selectedDateStr,
       time: bookingTime,
-      duration: 30,
-      // 30 mins default
+      duration: Number(meetingSettings?.meetingDurationMinutes || 30),
       type: bookingType,
       status: "Scheduled",
       meetingLink: "https://meet.google.com/abc-defg-hij"
     };
-    onBookAppointment(newApt);
+    const result = await onBookAppointment(newApt);
+    if (!result?.ok) {
+      alert(result?.error || "Failed to book session.");
+      return;
+    }
     setBookingTime(null);
     alert(`Session booked for ${newApt.date} at ${newApt.time}! Notification sent.`);
   };
-  const handleSaveAvailability = () => {
-    if (currentRole === "Counselor" && onUpdateEmployee) {
-      const updatedEmp = { ...currentUser, availability: tempAvailability };
-      onUpdateEmployee(updatedEmp);
-      setIsSettingsOpen(false);
-      alert("Availability settings updated!");
+  const handleAddBusyTime = async () => {
+    if (currentRole !== "Counselor") return;
+    setBusyError("");
+    if (!busyDate) {
+      setBusyError("Select a date for the one-time busy block.");
+      return;
     }
-  };
-  const toggleDay = (dayIndex) => {
-    setTempAvailability((prev) => {
-      const days = prev.days.includes(dayIndex) ? prev.days.filter((d) => d !== dayIndex) : [...prev.days, dayIndex].sort();
-      return { ...prev, days };
+    if (!busyStartTime || !busyEndTime) {
+      setBusyError("Select both start and end time.");
+      return;
+    }
+    if (toMinutes(busyEndTime) <= toMinutes(busyStartTime)) {
+      setBusyError("End time must be after start time.");
+      return;
+    }
+    setIsSavingBusy(true);
+    const result = await onAddBusyBooking?.({
+      counselorId: currentUser.id,
+      date: busyDate,
+      startTime: busyStartTime,
+      endTime: busyEndTime,
+      reason: busyReason === "Other" ? busyReasonOther || "Other" : busyReason
     });
+    setIsSavingBusy(false);
+    if (!result?.ok) {
+      setBusyError(result?.error || "Failed to save busy time.");
+      return;
+    }
+    setBusyReason("Leave");
+    setBusyReasonOther("");
   };
-  const handleLogOutcome = () => {
+  const dayBusyBlocks = selectedDate ? bookingBlocks.filter((block) => {
+    const targetCounselor = currentRole === "Counselor" ? currentUser.id : selectedCounselorId;
+    return block.counselorId === targetCounselor && block.date === formatDate(selectedDate);
+  }).sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime)) : [];
+  const roleVisibleBusyBlocks = bookingBlocks.filter((block) => {
+    if (currentRole === "Admin" || currentRole === "Manager" || currentRole === "Team Lead") return true;
+    if (currentRole === "Counselor") return block.counselorId === currentUser.id;
+    return block.counselorId === selectedCounselorId;
+  }).sort((a, b) => {
+    const aDateTime = new Date(`${a.date}T${a.startTime}`).getTime();
+    const bDateTime = new Date(`${b.date}T${b.startTime}`).getTime();
+    return aDateTime - bDateTime;
+  });
+  const handleLogOutcome = async () => {
     if (!selectedAptId) return;
     const apt = appointments.find((a) => a.id === selectedAptId);
     if (apt) {
-      onUpdateAppointment({
+      const result = await onUpdateAppointment({
         ...apt,
         status: outcomeStatus,
         outcomeNotes
       });
+      if (!result?.ok) {
+        alert(result?.error || "Failed to save session outcome.");
+        return;
+      }
       setOutcomeModalOpen(false);
       setOutcomeNotes("");
       setSelectedAptId(null);
@@ -138,7 +217,7 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
       const isToday = formatDate(/* @__PURE__ */ new Date()) === dateStr;
       const isSelected = selectedDate && formatDate(selectedDate) === dateStr;
       const myAppointmentsDay = appointments.filter((a) => {
-        if (currentRole === "Manager" || currentRole === "Admin") return a.date === dateStr;
+        if (currentRole === "Manager" || currentRole === "Team Lead" || currentRole === "Admin") return a.date === dateStr;
         if (currentRole === "Counselor") return a.date === dateStr && a.counselorId === currentUser.id;
         return a.date === dateStr && a.studentId === currentUser.id;
       });
@@ -171,16 +250,15 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
     ] });
   };
   const pendingReview = currentRole === "Counselor" ? appointments.filter((a) => a.counselorId === currentUser.id && a.status === "Scheduled" && /* @__PURE__ */ new Date(`${a.date}T${a.time}`) < /* @__PURE__ */ new Date()) : [];
+  const studentUpcomingMeetings = currentRole === "Student" ? appointments.filter((a) => a.studentId === currentUser.id && a.status === "Scheduled" && /* @__PURE__ */ new Date(`${a.date}T${a.time}`) > /* @__PURE__ */ new Date()).length : 0;
+  const hasStudentMeetingLimit = currentRole === "Student" && studentUpcomingMeetings >= 3;
   return /* @__PURE__ */ jsxs("div", { className: "space-y-6 animate-in fade-in duration-500 h-full flex flex-col", children: [
     /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-end shrink-0", children: [
       /* @__PURE__ */ jsxs("div", { children: [
         /* @__PURE__ */ jsx("h1", { className: "text-2xl font-semibold tracking-tight text-[#0F172A]", children: "Calendar & Appointments" }),
         /* @__PURE__ */ jsx("p", { className: "text-sm text-slate-500 mt-1", children: currentRole === "Student" ? "Book sessions with your counselor." : "Manage your schedule and availability." })
       ] }),
-      currentRole === "Counselor" && /* @__PURE__ */ jsxs(Button, { variant: "secondary", size: "sm", onClick: () => setIsSettingsOpen(true), children: [
-        /* @__PURE__ */ jsx(Settings, { size: 14, className: "mr-2" }),
-        " Availability Settings"
-      ] })
+      /* @__PURE__ */ jsx("div", { className: "text-xs text-slate-500", children: "Meeting policy: 30 min sessions with admin-defined open/close times for all 7 days." })
     ] }),
     pendingReview.length > 0 && /* @__PURE__ */ jsxs("div", { className: "bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between animate-in slide-in-from-top-2", children: [
       /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
@@ -198,77 +276,6 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
         setOutcomeModalOpen(true);
       }, children: "Review Now" })
     ] }),
-    isSettingsOpen && /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl shadow-xl w-full max-w-md scale-100 animate-in zoom-in-95 overflow-hidden", children: [
-      /* @__PURE__ */ jsxs("div", { className: "p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50", children: [
-        /* @__PURE__ */ jsxs("h3", { className: "font-bold text-slate-900 flex items-center gap-2", children: [
-          /* @__PURE__ */ jsx(Settings, { size: 18 }),
-          " Availability Settings"
-        ] }),
-        /* @__PURE__ */ jsx("button", { onClick: () => setIsSettingsOpen(false), className: "text-slate-400 hover:text-slate-600", children: /* @__PURE__ */ jsx(X, { size: 20 }) })
-      ] }),
-      /* @__PURE__ */ jsxs("div", { className: "p-6 space-y-6", children: [
-        /* @__PURE__ */ jsxs("div", { children: [
-          /* @__PURE__ */ jsx("label", { className: "text-xs font-bold text-slate-500 uppercase block mb-3", children: "Available Days" }),
-          /* @__PURE__ */ jsx("div", { className: "flex justify-between gap-1", children: ["S", "M", "T", "W", "T", "F", "S"].map((day, i) => {
-            const isSelected = tempAvailability.days.includes(i);
-            return /* @__PURE__ */ jsx(
-              "button",
-              {
-                onClick: () => toggleDay(i),
-                className: `w-10 h-10 rounded-full text-sm font-bold transition-all flex items-center justify-center
-                                                    ${isSelected ? "bg-indigo-600 text-white shadow-md" : "bg-slate-100 text-slate-400 hover:bg-slate-200"}
-                                                `,
-                children: day
-              },
-              i
-            );
-          }) })
-        ] }),
-        /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-2 gap-4", children: [
-          /* @__PURE__ */ jsxs("div", { children: [
-            /* @__PURE__ */ jsx("label", { className: "text-xs font-bold text-slate-500 uppercase block mb-2", children: "Start Time" }),
-            /* @__PURE__ */ jsx(
-              "select",
-              {
-                className: "w-full p-2 border border-gray-200 rounded-lg text-sm",
-                value: tempAvailability.startHour,
-                onChange: (e) => setTempAvailability((prev) => ({ ...prev, startHour: parseInt(e.target.value) })),
-                children: Array.from({ length: 24 }).map((_, i) => /* @__PURE__ */ jsxs("option", { value: i, children: [
-                  i.toString().padStart(2, "0"),
-                  ":00"
-                ] }, i))
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxs("div", { children: [
-            /* @__PURE__ */ jsx("label", { className: "text-xs font-bold text-slate-500 uppercase block mb-2", children: "End Time" }),
-            /* @__PURE__ */ jsx(
-              "select",
-              {
-                className: "w-full p-2 border border-gray-200 rounded-lg text-sm",
-                value: tempAvailability.endHour,
-                onChange: (e) => setTempAvailability((prev) => ({ ...prev, endHour: parseInt(e.target.value) })),
-                children: Array.from({ length: 24 }).map((_, i) => /* @__PURE__ */ jsxs("option", { value: i, children: [
-                  i.toString().padStart(2, "0"),
-                  ":00"
-                ] }, i))
-              }
-            )
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs("div", { className: "bg-blue-50 p-3 rounded-lg flex gap-3 items-start", children: [
-          /* @__PURE__ */ jsx(Clock, { size: 16, className: "text-blue-600 shrink-0 mt-0.5" }),
-          /* @__PURE__ */ jsx("p", { className: "text-xs text-blue-800", children: "Students will be able to book 30-minute sessions within these hours." })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxs("div", { className: "p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-2", children: [
-        /* @__PURE__ */ jsx(Button, { variant: "ghost", onClick: () => setIsSettingsOpen(false), children: "Cancel" }),
-        /* @__PURE__ */ jsxs(Button, { onClick: handleSaveAvailability, children: [
-          /* @__PURE__ */ jsx(Save, { size: 16, className: "mr-2" }),
-          " Save Settings"
-        ] })
-      ] })
-    ] }) }),
     /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0", children: [
       /* @__PURE__ */ jsxs("div", { className: "lg:col-span-4 bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit", children: [
         renderCalendar(),
@@ -284,7 +291,7 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
         ] }) })
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "lg:col-span-8 space-y-6 flex flex-col", children: [
-        selectedDate && currentRole !== "Manager" && currentRole !== "Admin" && /* @__PURE__ */ jsxs("div", { className: "bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-in slide-in-from-left-2", children: [
+        selectedDate && currentRole === "Student" && /* @__PURE__ */ jsxs("div", { className: "bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-in slide-in-from-left-2", children: [
           /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-center mb-4", children: [
             /* @__PURE__ */ jsxs("h3", { className: "font-bold text-slate-900 flex items-center gap-2", children: [
               /* @__PURE__ */ jsx(Clock, { size: 18, className: "text-slate-400" }),
@@ -319,16 +326,71 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
             )) : /* @__PURE__ */ jsx("div", { className: "col-span-full text-center text-slate-400 text-sm py-4", children: "Select a counselor to view availability." }),
             selectedCounselorId && generateTimeSlots(selectedDate, selectedCounselorId).length === 0 && /* @__PURE__ */ jsx("div", { className: "col-span-full text-center text-slate-400 text-sm py-4 italic", children: "No slots available on this date." })
           ] }),
-          /* @__PURE__ */ jsx("div", { className: "flex justify-end pt-4 border-t border-gray-100", children: /* @__PURE__ */ jsxs(Button, { disabled: !bookingTime, onClick: handleBook, children: [
+          hasStudentMeetingLimit && /* @__PURE__ */ jsx("div", { className: "mb-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2", children: "You already have 3 upcoming meetings. Complete or cancel one before booking another." }),
+          /* @__PURE__ */ jsx("div", { className: "flex justify-end pt-4 border-t border-gray-100", children: /* @__PURE__ */ jsxs(Button, { disabled: !bookingTime || hasStudentMeetingLimit, onClick: handleBook, children: [
             "Book ",
             bookingType
           ] }) })
+        ] }),
+        currentRole === "Counselor" && /* @__PURE__ */ jsxs("div", { className: "bg-white p-6 rounded-xl border border-gray-200 shadow-sm", children: [
+          /* @__PURE__ */ jsx("h3", { className: "font-bold text-slate-900 mb-4", children: "Block Busy Time" }),
+          busyError && /* @__PURE__ */ jsx("div", { className: "mb-3 text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2", children: busyError }),
+          /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 sm:grid-cols-4 gap-3", children: [
+            /* @__PURE__ */ jsx("input", { type: "date", value: busyDate, onChange: (e) => setBusyDate(e.target.value), className: "w-full px-3 py-2 text-sm border border-gray-200 rounded-md" }),
+            /* @__PURE__ */ jsx("input", { type: "time", step: 1800, value: busyStartTime, onChange: (e) => setBusyStartTime(e.target.value), className: "w-full px-3 py-2 text-sm border border-gray-200 rounded-md" }),
+            /* @__PURE__ */ jsx("input", { type: "time", step: 1800, value: busyEndTime, onChange: (e) => setBusyEndTime(e.target.value), className: "w-full px-3 py-2 text-sm border border-gray-200 rounded-md" }),
+            /* @__PURE__ */ jsxs("select", { value: busyReason, onChange: (e) => setBusyReason(e.target.value), className: "w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-white", children: [
+              /* @__PURE__ */ jsx("option", { value: "Leave", children: "Leave" }),
+              /* @__PURE__ */ jsx("option", { value: "Training", children: "Training" }),
+              /* @__PURE__ */ jsx("option", { value: "Meeting", children: "Internal Meeting" }),
+              /* @__PURE__ */ jsx("option", { value: "Personal", children: "Personal" }),
+              /* @__PURE__ */ jsx("option", { value: "Other", children: "Other" })
+            ] })
+          ] }),
+          busyReason === "Other" && /* @__PURE__ */ jsx("input", { type: "text", value: busyReasonOther, onChange: (e) => setBusyReasonOther(e.target.value), placeholder: "Enter reason", className: "mt-3 w-full px-3 py-2 text-sm border border-gray-200 rounded-md" }),
+          /* @__PURE__ */ jsx("p", { className: "mt-3 text-xs text-slate-500", children: "Busy blocks are one-time only and apply to the selected date." }),
+          /* @__PURE__ */ jsx("div", { className: "mt-3 flex justify-end", children: /* @__PURE__ */ jsx(Button, { onClick: handleAddBusyTime, isLoading: isSavingBusy, children: "Add Busy Time" }) }),
+          /* @__PURE__ */ jsx("div", { className: "mt-4 space-y-2", children: dayBusyBlocks.length === 0 ? /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-400", children: "No busy blocks for this day." }) : dayBusyBlocks.map((block) => /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between text-xs bg-amber-50 border border-amber-200 rounded-md px-3 py-2", children: [
+            /* @__PURE__ */ jsxs("span", { className: "text-amber-800", children: [
+              block.startTime,
+              " - ",
+              block.endTime,
+              " | ",
+              block.reason || "Busy"
+            ] }),
+            /* @__PURE__ */ jsx("button", { className: "text-rose-600 hover:text-rose-700 font-semibold", onClick: async () => {
+              await onDeleteBusyBooking?.(block.id);
+            }, children: "Remove" })
+          ] }, block.id)) })
+        ] }),
+        (currentRole === "Admin" || currentRole === "Manager" || currentRole === "Team Lead") && /* @__PURE__ */ jsxs("div", { className: "bg-white p-6 rounded-xl border border-gray-200 shadow-sm", children: [
+          /* @__PURE__ */ jsx("h3", { className: "font-bold text-slate-900 mb-4", children: "Counselor Blocked Times" }),
+          roleVisibleBusyBlocks.length === 0 ? /* @__PURE__ */ jsx("p", { className: "text-sm text-slate-400", children: "No blocked times found." }) : /* @__PURE__ */ jsx("div", { className: "space-y-2 max-h-64 overflow-y-auto", children: roleVisibleBusyBlocks.map((block) => {
+            const counselorName = getCounselor(block.counselorId)?.name || block.counselorId;
+            return /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between text-xs bg-amber-50 border border-amber-200 rounded-md px-3 py-2", children: [
+              /* @__PURE__ */ jsxs("div", { className: "text-amber-800", children: [
+                /* @__PURE__ */ jsx("div", { className: "font-semibold", children: counselorName }),
+                /* @__PURE__ */ jsxs("div", { children: [
+                  block.date,
+                  " | ",
+                  block.startTime,
+                  " - ",
+                  block.endTime
+                ] }),
+                /* @__PURE__ */ jsxs("div", { children: [
+                  "Reason: ",
+                  block.reason || "Busy"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx("span", { className: "text-amber-600 font-semibold", children: "Blocked" })
+            ] }, block.id);
+          }) })
         ] }),
         /* @__PURE__ */ jsxs("div", { className: "bg-white border border-gray-200 rounded-xl shadow-sm flex-1 overflow-hidden flex flex-col", children: [
           /* @__PURE__ */ jsx("div", { className: "p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center", children: /* @__PURE__ */ jsx("h3", { className: "font-bold text-slate-900 text-sm uppercase tracking-wide", children: "Scheduled Sessions" }) }),
           /* @__PURE__ */ jsxs("div", { className: "divide-y divide-gray-100 overflow-y-auto flex-1 p-0", children: [
             appointments.filter((a) => {
-              if (currentRole === "Manager" || currentRole === "Admin") return true;
+              if (currentRole === "Manager" || currentRole === "Team Lead" || currentRole === "Admin") return true;
               if (currentRole === "Counselor") return a.counselorId === currentUser.id;
               return a.studentId === currentUser.id;
             }).sort((a, b) => {
@@ -395,7 +457,7 @@ const CalendarScheduler = ({ appointments, onBookAppointment, onUpdateAppointmen
         ] })
       ] })
     ] }),
-    outcomeModalOpen && /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl shadow-xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95", children: [
+    outcomeModalOpen && /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl border border-gray-100 shadow-2xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95", children: [
       /* @__PURE__ */ jsx("h3", { className: "font-bold text-lg text-slate-900 mb-4", children: "Log Session Outcome" }),
       /* @__PURE__ */ jsxs("div", { className: "space-y-4", children: [
         /* @__PURE__ */ jsxs("div", { children: [

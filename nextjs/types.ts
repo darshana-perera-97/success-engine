@@ -15,7 +15,7 @@ export type Priority = 'High' | 'Medium' | 'Low';
 export type TaskStatus = 'Pending' | 'In Progress' | 'In Review' | 'Completed' | 'Overdue';
 
 // New Role System
-export type UserRole = 'Student' | 'Counselor' | 'Manager' | 'Admin';
+export type UserRole = 'Student' | 'Counselor' | 'Manager' | 'Team Lead' | 'Admin';
 
 export interface Employee {
   id: string;

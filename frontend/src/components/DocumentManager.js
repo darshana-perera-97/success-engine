@@ -3,59 +3,81 @@ import { useState, useMemo } from "react";
 import { Upload, FileText, Check, X, AlertCircle, Eye, Hourglass, Download, MessageCircle, FileUp } from "lucide-react";
 import { Button } from "./Button";
 import { COUNTRY_CHECKLISTS } from "../constants";
-const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e3)}`;
-const DocumentManager = ({ student, userRole, onUpdateDocument, onAddDocument, tasks = [], onUpdateTasks }) => {
+const DocumentManager = ({ student, userRole, onUpdateDocument, tasks = [], onUpdateTasks, onUploadDocument }) => {
   const [rejectionModal, setRejectionModal] = useState({ isOpen: false, doc: null });
   const [rejectionReason, setRejectionReason] = useState("");
   const [uploadModal, setUploadModal] = useState({ isOpen: false, docType: null });
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState("");
   const [whatsappNotification, setWhatsappNotification] = useState({ show: false, message: "" });
   const studentDocuments = useMemo(() => student.documents || [], [student.documents]);
   const showWhatsappNotification = (message) => {
     setWhatsappNotification({ show: true, message });
     setTimeout(() => setWhatsappNotification({ show: false, message: "" }), 4e3);
   };
-  const handleSimulatedUpload = () => {
-    if (!uploadModal.docType) return;
+  const handleUploadFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !uploadModal.docType) return;
+    if (!onUploadDocument) {
+      setUploadError("Document upload service is unavailable.");
+      event.target.value = "";
+      return;
+    }
+    const allowedTypes = new Set([
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ]);
+    if (!allowedTypes.has(file.type)) {
+      setUploadError("Unsupported format. Use PDF, JPG, PNG, DOC, or DOCX.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("File must be under 10MB.");
+      event.target.value = "";
+      return;
+    }
+    setUploadError("");
     setIsUploading(true);
-    setUploadProgress(0);
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            handleFileUpload(uploadModal.docType);
-            setIsUploading(false);
-            setUploadModal({ isOpen: false, docType: null });
-            showWhatsappNotification(`Document "${uploadModal.docType}" uploaded successfully. WhatsApp notification sent to student.`);
-          }, 500);
-          return 100;
-        }
-        return prev + 25;
-      });
-    }, 400);
-  };
-  const handleFileUpload = (docType) => {
-    const newDoc = {
-      id: generateId("doc"),
-      name: `${docType.replace(/([A-Z])/g, " $1")}.pdf`,
-      type: docType,
-      status: "Pending",
-      uploadedAt: "Just now",
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("read_error"));
+      reader.readAsDataURL(file);
+    }).catch(() => "");
+    if (!dataUrl) {
+      setIsUploading(false);
+      setUploadError("Unable to read file. Try again.");
+      event.target.value = "";
+      return;
+    }
+    const result = await onUploadDocument({
+      studentId: student.id,
+      dataUrl,
+      fileName: file.name,
+      docType: uploadModal.docType,
       phase: 1,
-      tier: "Global",
-      url: "#"
-    };
-    onAddDocument(newDoc);
+      tier: "Global"
+    });
+    setIsUploading(false);
+    event.target.value = "";
+    if (!result?.ok) {
+      setUploadError(result?.error || "Failed to upload document.");
+      return;
+    }
     if (onUpdateTasks) {
       const linkedTask = tasks.find(
-        (t) => t.student_id === student.id && t.documentType === docType && t.status !== "Completed"
+        (t) => t.student_id === student.id && t.documentType === uploadModal.docType && t.status !== "Completed"
       );
       if (linkedTask) {
         onUpdateTasks([{ ...linkedTask, status: "In Review" }]);
       }
     }
+    setUploadModal({ isOpen: false, docType: null });
+    showWhatsappNotification(`Document "${uploadModal.docType}" uploaded successfully. WhatsApp notification sent to student.`);
   };
   const handleReview = (doc, status, reason) => {
     const updatedDoc = { ...doc, status, rejectionReason: status === "Rejected" ? reason : void 0 };
@@ -132,7 +154,7 @@ const DocumentManager = ({ student, userRole, onUpdateDocument, onAddDocument, t
             /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2 ml-2 pl-2 border-l border-gray-200", children: [
               uploadedFile.url && /* @__PURE__ */ jsxs(Fragment, { children: [
                 /* @__PURE__ */ jsx("a", { href: uploadedFile.url, target: "_blank", rel: "noopener noreferrer", title: "Preview", className: "p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900", children: /* @__PURE__ */ jsx(Eye, { size: 16 }) }),
-                /* @__PURE__ */ jsx("a", { href: uploadedFile.url, download: uploadedFile.name, title: "Download", className: "p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900", children: /* @__PURE__ */ jsx(Download, { size: 16 }) })
+                /* @__PURE__ */ jsx("a", { href: uploadedFile.url, target: "_blank", rel: "noopener noreferrer", title: "Download", className: "p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900", children: /* @__PURE__ */ jsx(Download, { size: 16 }) })
               ] }),
               isStaff && (uploadedFile.status === "Pending" || uploadedFile.status === "Reviewing") && /* @__PURE__ */ jsxs(Fragment, { children: [
                 /* @__PURE__ */ jsx("div", { className: "w-px h-5 bg-gray-200" }),
@@ -180,7 +202,7 @@ const DocumentManager = ({ student, userRole, onUpdateDocument, onAddDocument, t
       /* @__PURE__ */ jsxs("div", { className: "p-5 border-b border-gray-100 flex justify-between items-center bg-slate-50", children: [
         /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx("h3", { className: "font-semibold text-lg text-slate-900", children: "Upload Document" }),
-          /* @__PURE__ */ jsxs("p", { className: "text-xs text-slate-500 mt-1", children: [
+            /* @__PURE__ */ jsxs("p", { className: "text-xs text-slate-500 mt-1", children: [
             "Uploading: ",
             /* @__PURE__ */ jsx("span", { className: "font-medium text-slate-700", children: uploadModal.docType })
           ] })
@@ -188,25 +210,19 @@ const DocumentManager = ({ student, userRole, onUpdateDocument, onAddDocument, t
         !isUploading && /* @__PURE__ */ jsx("button", { onClick: () => setUploadModal({ isOpen: false, docType: null }), className: "p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-colors", children: /* @__PURE__ */ jsx(X, { size: 18 }) })
       ] }),
       /* @__PURE__ */ jsx("div", { className: "p-6", children: !isUploading ? /* @__PURE__ */ jsxs(
-        "div",
+        "label",
         {
           className: "border-2 border-dashed border-indigo-200 rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-indigo-50/50 hover:border-indigo-300 transition-colors group",
-          onClick: handleSimulatedUpload,
           children: [
+            /* @__PURE__ */ jsx("input", { type: "file", accept: ".pdf,.jpg,.jpeg,.png,.doc,.docx", className: "hidden", onChange: handleUploadFileChange }),
             /* @__PURE__ */ jsx("div", { className: "w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform", children: /* @__PURE__ */ jsx(FileUp, { size: 24 }) }),
-            /* @__PURE__ */ jsx("h4", { className: "text-sm font-medium text-slate-900 mb-1", children: "Click to browse or drag file here" }),
-            /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Supports PDF, JPG, PNG (Max 10MB)" })
+            /* @__PURE__ */ jsx("h4", { className: "text-sm font-medium text-slate-900 mb-1", children: "Click to browse file" }),
+            /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Supports PDF, JPG, PNG, DOC, DOCX (Max 10MB)" }),
+            uploadError ? /* @__PURE__ */ jsx("p", { className: "text-xs text-rose-600 mt-3", children: uploadError }) : null
           ]
         }
       ) : /* @__PURE__ */ jsxs("div", { className: "py-8 flex flex-col items-center justify-center text-center", children: [
-        /* @__PURE__ */ jsxs("div", { className: "w-16 h-16 relative mb-6", children: [
-          /* @__PURE__ */ jsx("svg", { className: "w-full h-full text-indigo-100", viewBox: "0 0 36 36", children: /* @__PURE__ */ jsx("path", { d: "M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831", fill: "none", stroke: "currentColor", strokeWidth: "3" }) }),
-          /* @__PURE__ */ jsx("svg", { className: "w-full h-full text-indigo-600 absolute top-0 left-0 transition-all duration-300 ease-out", viewBox: "0 0 36 36", strokeDasharray: `${uploadProgress}, 100`, children: /* @__PURE__ */ jsx("path", { d: "M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831", fill: "none", stroke: "currentColor", strokeWidth: "3" }) }),
-          /* @__PURE__ */ jsxs("div", { className: "absolute inset-0 flex items-center justify-center text-xs font-bold text-indigo-700", children: [
-            uploadProgress,
-            "%"
-          ] })
-        ] }),
+        /* @__PURE__ */ jsx("div", { className: "w-16 h-16 rounded-full mb-6 bg-indigo-100 text-indigo-600 flex items-center justify-center animate-pulse", children: /* @__PURE__ */ jsx(FileUp, { size: 24 }) }),
         /* @__PURE__ */ jsx("h4", { className: "text-sm font-medium text-slate-900 mb-1", children: "Uploading Document..." }),
         /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Please wait while we process your file." })
       ] }) })

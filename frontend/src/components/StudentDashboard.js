@@ -1,15 +1,42 @@
 import { jsx, jsxs } from "react/jsx-runtime";
-import { useState } from "react";
-import { EMPLOYEES } from "../constants";
+import { useRef, useState } from "react";
 import { CheckCircle, Upload, AlertTriangle, Calendar, Info, Mail, Phone, X, CheckSquare, FileText, Download, Eye } from "lucide-react";
 import { Button } from "./Button";
-const StudentDashboard = ({ student, onNavigate, tasks = [] }) => {
+import { COUNTRY_CHECKLISTS } from "../constants";
+const API_BASE = typeof process !== "undefined" && process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL : "http://localhost:3333";
+const toAbsoluteAssetUrl = (avatar) => {
+  if (!avatar) return avatar;
+  if (String(avatar).startsWith("/assets/")) {
+    return `${API_BASE}${avatar}`;
+  }
+  return avatar;
+};
+const normalizeCounselorRole = (role) => {
+  const value = String(role || "").trim();
+  if (!value) return "Counselor";
+  return value.toLowerCase() === "consultor" ? "Counselor" : value;
+};
+const formatRegisteredDate = (student) => {
+  const candidate = student.joinedDate || student.createdAt || "";
+  if (!candidate) return "Not available";
+  const parsed = new Date(candidate);
+  if (Number.isNaN(parsed.getTime())) return String(candidate);
+  return parsed.toLocaleDateString();
+};
+const StudentDashboard = ({ student, onNavigate, tasks = [], employees = [], onUploadDocument }) => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const counselor = EMPLOYEES.find((e) => e.id === student.counselor) || {
-    name: "Sarah Jenkins",
-    role: "Senior Counselor",
-    email: "sarah@nexgenai.com",
-    avatar: "/CEO.png"
+  const [selectedDocumentType, setSelectedDocumentType] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadError, setUploadError] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
+  const matchedCounselor = employees.find((e) => e.id === student.counselor);
+  const counselor = {
+    name: matchedCounselor?.name || matchedCounselor?.username || student.counselorName || "Assigned Counselor",
+    role: normalizeCounselorRole(matchedCounselor?.role || student.counselorRole),
+    email: matchedCounselor?.email || student.counselorEmail || "Not available",
+    phone: matchedCounselor?.phone || student.counselorPhone || "Not available",
+    avatar: toAbsoluteAssetUrl(matchedCounselor?.avatar || student.counselorAvatar || "")
   };
   const allStatuses = ["New Inquiry", "Counseling", "Documentation", "Uni Application", "Offer Received", "Visa Pilot"];
   const rawIndex = allStatuses.indexOf(student.status);
@@ -35,6 +62,70 @@ const StudentDashboard = ({ student, onNavigate, tasks = [] }) => {
     if (a.priority !== "High" && b.priority === "High") return 1;
     return 0;
   });
+  const checklist = COUNTRY_CHECKLISTS[student.country] || COUNTRY_CHECKLISTS["Default"] || [];
+  const documentTypeOptions = Array.from(
+    new Set(
+      checklist.flatMap((category) => category.items.map((item) => item.docType))
+    )
+  );
+  const closeUploadModal = () => {
+    setIsUploadModalOpen(false);
+    setSelectedDocumentType("");
+    setSelectedFile(null);
+    setUploadError("");
+    setIsUploading(false);
+  };
+  const handleUploadSubmit = async () => {
+    if (!selectedDocumentType) {
+      setUploadError("Please choose a document type.");
+      return;
+    }
+    if (!selectedFile) {
+      setUploadError("Please choose a file to upload.");
+      return;
+    }
+    const allowedTypes = new Set(["application/pdf", "image/png", "image/jpeg", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]);
+    if (!allowedTypes.has(selectedFile.type)) {
+      setUploadError("Unsupported format. Use PDF, JPG, PNG, DOC, or DOCX.");
+      return;
+    }
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setUploadError("File must be under 10MB.");
+      return;
+    }
+    if (!onUploadDocument) {
+      closeUploadModal();
+      return;
+    }
+    setUploadError("");
+    setIsUploading(true);
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("read_error"));
+      reader.readAsDataURL(selectedFile);
+    }).catch(() => "");
+    if (!dataUrl) {
+      setIsUploading(false);
+      setUploadError("Unable to read file. Try again.");
+      return;
+    }
+    const result = await onUploadDocument({
+      studentId: student.id,
+      dataUrl,
+      fileName: selectedFile.name,
+      docType: selectedDocumentType,
+      phase: 1,
+      tier: "Global"
+    });
+    if (!result?.ok) {
+      setIsUploading(false);
+      setUploadError(result?.error || "Failed to upload document.");
+      return;
+    }
+    setIsUploading(false);
+    closeUploadModal();
+  };
   return /* @__PURE__ */ jsxs("div", { className: "space-y-8 animate-in fade-in duration-500 pb-10", children: [
     /* @__PURE__ */ jsxs("div", { className: "bg-[#0F172A] rounded-2xl p-8 text-white shadow-xl relative overflow-hidden group", children: [
       /* @__PURE__ */ jsxs("div", { className: "relative z-10", children: [
@@ -93,7 +184,7 @@ const StudentDashboard = ({ student, onNavigate, tasks = [] }) => {
           /* @__PURE__ */ jsx(Calendar, { size: 16 }),
           /* @__PURE__ */ jsxs("span", { children: [
             "Registered Date: ",
-            student.joinedDate || "Feb 12, 2026"
+              formatRegisteredDate(student)
           ] })
         ] })
       ] }),
@@ -125,6 +216,37 @@ const StudentDashboard = ({ student, onNavigate, tasks = [] }) => {
     ] }),
     /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6", children: [
       /* @__PURE__ */ jsxs("div", { className: "lg:col-span-2 space-y-6", children: [
+        student.cvFile && /* @__PURE__ */ jsxs("div", { className: "bg-white border border-emerald-100 rounded-xl p-6 shadow-sm bg-gradient-to-br from-white to-emerald-50/30", children: [
+          /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between mb-4", children: [
+            /* @__PURE__ */ jsxs("h3", { className: "font-bold text-slate-900 flex items-center", children: [
+              /* @__PURE__ */ jsx(FileText, { size: 18, className: "mr-2 text-emerald-600" }),
+              "Uploaded Old CV"
+            ] }),
+            /* @__PURE__ */ jsxs("span", { className: "text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full uppercase tracking-wide", children: [
+              "Uploaded: ",
+              new Date(student.cvFile.uploadedAt || Date.now()).toLocaleDateString()
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between p-4 bg-white border border-emerald-100 rounded-xl shadow-sm", children: [
+            /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-4", children: [
+              /* @__PURE__ */ jsx("div", { className: "h-12 w-12 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow-md", children: /* @__PURE__ */ jsx(FileText, { size: 24 }) }),
+              /* @__PURE__ */ jsxs("div", { children: [
+                /* @__PURE__ */ jsx("p", { className: "font-bold text-slate-900", children: student.cvFile.name || "Uploaded_CV.pdf" }),
+                /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500", children: "Saved in student profile" })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs("div", { className: "flex gap-2", children: [
+              /* @__PURE__ */ jsx("a", { href: student.cvFile.url, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ jsxs(Button, { size: "sm", variant: "secondary", children: [
+                /* @__PURE__ */ jsx(Eye, { size: 14, className: "mr-1" }),
+                " View"
+              ] }) }),
+              /* @__PURE__ */ jsx("a", { href: student.cvFile.url, target: "_blank", rel: "noopener noreferrer", children: /* @__PURE__ */ jsxs(Button, { size: "sm", className: "bg-emerald-600 hover:bg-emerald-700", children: [
+                /* @__PURE__ */ jsx(Download, { size: 14, className: "mr-1" }),
+                " Download"
+              ] }) })
+            ] })
+          ] })
+        ] }),
         student.generatedCV && /* @__PURE__ */ jsxs("div", { className: "bg-white border border-indigo-100 rounded-xl p-6 shadow-sm bg-gradient-to-br from-white to-indigo-50/30", children: [
           /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between mb-4", children: [
             /* @__PURE__ */ jsxs("h3", { className: "font-bold text-slate-900 flex items-center", children: [
@@ -192,7 +314,10 @@ const StudentDashboard = ({ student, onNavigate, tasks = [] }) => {
             /* @__PURE__ */ jsx("div", { className: "h-2 w-2 bg-emerald-500 rounded-full animate-pulse", title: "Online Now" })
           ] }),
           /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-4 mb-6", children: [
-            /* @__PURE__ */ jsx("div", { className: "h-14 w-14 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xl border-2 border-white shadow-md overflow-hidden", children: counselor.avatar ? /* @__PURE__ */ jsx("img", { src: counselor.avatar, alt: counselor.name, className: "w-full h-full object-cover" }) : counselor.name.charAt(0) }),
+            /* @__PURE__ */ jsx("div", { className: "h-14 w-14 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xl border-2 border-white shadow-md overflow-hidden", children: counselor.avatar ? /* @__PURE__ */ jsx("img", { src: counselor.avatar, alt: counselor.name, className: "w-full h-full object-cover", referrerPolicy: "no-referrer", onError: (event) => {
+              event.currentTarget.onerror = null;
+              event.currentTarget.src = "/canadian.png";
+            } }) : counselor.name.charAt(0) }),
             /* @__PURE__ */ jsxs("div", { children: [
               /* @__PURE__ */ jsx("p", { className: "font-bold text-slate-900", children: counselor.name }),
               /* @__PURE__ */ jsxs("p", { className: "text-sm text-slate-500", children: [
@@ -210,7 +335,7 @@ const StudentDashboard = ({ student, onNavigate, tasks = [] }) => {
             ] }),
             /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-3", children: [
               /* @__PURE__ */ jsx(Phone, { size: 14, className: "text-slate-400" }),
-              " +94 77 123 9999"
+              counselor.phone
             ] })
           ] }),
           /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-2 gap-2", children: [
@@ -234,17 +359,31 @@ const StudentDashboard = ({ student, onNavigate, tasks = [] }) => {
         ] })
       ] })
     ] }),
-    isUploadModalOpen && /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl shadow-xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95", children: [
+    isUploadModalOpen && /* @__PURE__ */ jsx("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in", children: /* @__PURE__ */ jsxs("div", { className: "bg-white rounded-xl border border-gray-100 shadow-2xl p-6 w-full max-w-md scale-100 animate-in zoom-in-95", children: [
       /* @__PURE__ */ jsxs("div", { className: "flex justify-between items-center mb-4", children: [
         /* @__PURE__ */ jsx("h3", { className: "font-bold text-lg text-slate-900", children: "Upload Documents" }),
-        /* @__PURE__ */ jsx("button", { onClick: () => setIsUploadModalOpen(false), className: "text-slate-400 hover:text-slate-600", children: /* @__PURE__ */ jsx(X, { size: 20 }) })
+        /* @__PURE__ */ jsx("button", { onClick: closeUploadModal, className: "text-slate-400 hover:text-slate-600", children: /* @__PURE__ */ jsx(X, { size: 20 }) })
       ] }),
-      /* @__PURE__ */ jsxs("div", { className: "border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors cursor-pointer", children: [
+      /* @__PURE__ */ jsx("label", { className: "block text-sm font-medium text-slate-700 mb-2", children: "Document Type" }),
+      /* @__PURE__ */ jsxs("select", { className: "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500", value: selectedDocumentType, onChange: (event) => setSelectedDocumentType(event.target.value), children: [
+        /* @__PURE__ */ jsx("option", { value: "", children: "Select a document type" }),
+        documentTypeOptions.map((docType) => /* @__PURE__ */ jsx("option", { value: docType, children: docType }, docType))
+      ] }),
+      /* @__PURE__ */ jsxs("div", { className: "border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors cursor-pointer", onClick: () => fileInputRef.current?.click(), children: [
         /* @__PURE__ */ jsx("div", { className: "w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-3", children: /* @__PURE__ */ jsx(Upload, { size: 24 }) }),
-        /* @__PURE__ */ jsx("p", { className: "text-sm font-semibold text-slate-900", children: "Click to upload or drag and drop" }),
-        /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500 mt-1", children: "PDF, JPG or PNG (max. 5MB)" })
+        /* @__PURE__ */ jsx("p", { className: "text-sm font-semibold text-slate-900", children: selectedFile?.name || "Click to choose a file" }),
+        /* @__PURE__ */ jsx("p", { className: "text-xs text-slate-500 mt-1", children: "PDF, JPG, PNG, DOC or DOCX (max. 10MB)" })
       ] }),
-      /* @__PURE__ */ jsx("div", { className: "mt-4 flex justify-end", children: /* @__PURE__ */ jsx(Button, { variant: "ghost", onClick: () => setIsUploadModalOpen(false), children: "Cancel" }) })
+      /* @__PURE__ */ jsx("input", { ref: fileInputRef, type: "file", className: "hidden", accept: ".pdf,.png,.jpg,.jpeg,.doc,.docx", onChange: (event) => {
+        const file = event.target.files?.[0];
+        setSelectedFile(file || null);
+        setUploadError("");
+      } }),
+      uploadError && /* @__PURE__ */ jsx("p", { className: "mt-3 text-xs text-rose-600", children: uploadError }),
+      /* @__PURE__ */ jsxs("div", { className: "mt-4 flex justify-end gap-2", children: [
+        /* @__PURE__ */ jsx(Button, { variant: "ghost", onClick: closeUploadModal, children: "Cancel" }),
+        /* @__PURE__ */ jsx(Button, { onClick: handleUploadSubmit, disabled: !selectedDocumentType || !selectedFile || isUploading, children: isUploading ? "Uploading..." : "Upload" })
+      ] })
     ] }) })
   ] });
 };
