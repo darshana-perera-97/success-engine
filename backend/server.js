@@ -1219,10 +1219,18 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { ok: false, error: "Invoice not found." });
         return;
       }
+      const currentInvoice = invoices[idx];
+      const actorRole = String(body.actorRole || "").trim();
+      const isAcceptingPayment = String(body.status || "") === "Paid" && String(currentInvoice.status || "") === "Verifying";
+      if (isAcceptingPayment && actorRole !== "Admin" && actorRole !== "Manager") {
+        sendJson(res, 403, { ok: false, error: "Only Admin or Manager can accept invoice payments." });
+        return;
+      }
+      const { actorRole: _actorRole, actorId: _actorId, ...safeBody } = body;
       const merged = {
-        ...invoices[idx],
-        ...body,
-        id: invoices[idx].id,
+        ...currentInvoice,
+        ...safeBody,
+        id: currentInvoice.id,
         updatedAt: new Date().toISOString(),
       };
       const updated = [...invoices];

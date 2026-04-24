@@ -586,7 +586,12 @@ function App({ initialView = "dashboard" }) {
     return { ok: true, data: saved.data };
   };
   const handleUpdateInvoice = async (updatedInv) => {
-    const saved = await updateInvoice(updatedInv.id, updatedInv);
+    const payload = {
+      ...updatedInv,
+      actorRole: currentRole,
+      actorId: String(currentUser?.id || authenticatedUser?.id || "")
+    };
+    const saved = await updateInvoice(updatedInv.id, payload);
     if (!saved.ok) {
       addNotification("Invoice failed", saved.error || "Failed to update invoice.", "error");
       return { ok: false, error: saved.error || "Failed to update invoice." };
