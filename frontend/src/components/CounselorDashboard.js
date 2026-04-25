@@ -1,21 +1,69 @@
+import { useEffect, useState } from "react";
 import { jsx, jsxs } from "react/jsx-runtime";
 import { Clock, Users, CheckCircle, ArrowRight, CheckSquare } from "lucide-react";
 import { Button } from "./Button";
 import { BarChart, Bar, ResponsiveContainer, XAxis } from "recharts";
 import { LeaderboardWidget } from "./LeaderboardWidget";
+import { getChats } from "../authApi";
+import { filterTasksForCounselor, isTaskOverdueByDate } from "../counselorTaskScope";
 const CounselorDashboard = ({ onNavigate, tasks, currentUser, students, allStudents = students, employees = [], onSelectStudent, onSelectTask }) => {
-  const counselorId = currentUser?.id || "EMP002";
+  const [chatMessages, setChatMessages] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const uid = String(currentUser?.id || "").trim();
+    if (!uid) {
+      setChatMessages([]);
+      return;
+    }
+    const load = async () => {
+      const result = await getChats(uid);
+      if (cancelled || !result.ok) return;
+      setChatMessages(result.data || []);
+    };
+    load();
+    const t = setInterval(load, 5e3);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [currentUser?.id]);
   const myStudents = students;
-  const myTasks = tasks.filter((t) => t.assigned_to.includes(counselorId));
-  const overdueTasksCount = myTasks.filter((t) => t.status === "Overdue").length;
+  const myTasks = filterTasksForCounselor(tasks, currentUser, myStudents);
+  const overdueTasksCount = myTasks.filter((t) => isTaskOverdueByDate(t)).length;
   const totalUnresolvedViolations = myStudents.reduce((acc, s) => {
     return acc + (s.slaViolations?.filter((v) => !v.resolved).length || 0);
   }, 0);
   const slaScore = Math.max(0, 100 - overdueTasksCount * 5 - totalUnresolvedViolations * 2);
-  const overdueTasks = myTasks.filter((t) => t.status === "Overdue");
+  const overdueTasks = myTasks.filter((t) => isTaskOverdueByDate(t));
   const pendingTasks = myTasks.filter((t) => t.status === "Pending" || t.status === "In Progress" || t.status === "In Review");
+  const pendingTasksOpen = myTasks.filter((t) => t.status === "Pending" || t.status === "In Progress");
   const completedTasks = myTasks.filter((t) => t.status === "Completed");
   const pendingReviewTasks = myTasks.filter((t) => t.status === "In Review");
+  const itemsReviewed = myTasks.filter((t) => {
+    if (t.status !== "Completed") return false;
+    if (t.documentType) return true;
+    return /review/i.test(String(t.task || ""));
+  }).length;
+  const studentIdSet = new Set(
+    (myStudents || []).map((s) => String(s.id || "").trim()).filter(Boolean)
+  );
+  const counselorId = String(currentUser?.id || "").trim();
+  const inboundFromStudents = chatMessages.filter((m) => {
+    return studentIdSet.has(String(m.senderId || "")) && String(m.receiverId || "") === counselorId;
+  }).length;
+  const counselorReplies = chatMessages.filter((m) => {
+    const fromCounselor = String(m.senderId || "") === counselorId;
+    const toStudent = studentIdSet.has(String(m.receiverId || ""));
+    const hasBody = (String(m.content || "").trim().length > 0 || m.attachment);
+    return fromCounselor && toStudent && hasBody;
+  }).length;
+  const reviewDenominator = itemsReviewed + pendingReviewTasks.length;
+  const reviewScore = reviewDenominator > 0 ? itemsReviewed / reviewDenominator * 100 : 100;
+  const totalMyTasks = myTasks.length;
+  const taskCompletionPct = totalMyTasks > 0 ? completedTasks.length / totalMyTasks * 100 : 100;
+  const chatScore = inboundFromStudents > 0 ? Math.min(100, counselorReplies / Math.max(1, inboundFromStudents) * 100) : 100;
+  const baseActivity = 0.4 * taskCompletionPct + 0.3 * chatScore + 0.3 * reviewScore;
+  const performanceScore = Math.max(0, Math.min(100, Math.round(baseActivity / 100 * slaScore)));
   const activityData = [
     { name: "Mon", calls: 4 },
     { name: "Tue", calls: 8 },
@@ -34,12 +82,22 @@ const CounselorDashboard = ({ onNavigate, tasks, currentUser, students, allStude
       ] }),
       /* @__PURE__ */ jsxs("div", { className: "text-left sm:text-right", children: [
         /* @__PURE__ */ jsx("p", { className: "text-xs font-semibold text-slate-400 uppercase tracking-wider", children: "Your Performance" }),
-        /* @__PURE__ */ jsx("div", { className: "flex items-center gap-2 mt-1", children: /* @__PURE__ */ jsxs("div", { className: `flex items-center text-sm font-bold px-2 py-0.5 rounded-full ${slaScore >= 90 ? "bg-emerald-50 text-emerald-600" : slaScore >= 70 ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"}`, children: [
-          /* @__PURE__ */ jsx(CheckCircle, { size: 14, className: "mr-1" }),
-          " ",
-          slaScore,
-          "% SLA Met"
-        ] }) })
+        /* @__PURE__ */ jsxs("div", { className: "flex flex-col items-start sm:items-end gap-1 mt-1", children: [
+          /* @__PURE__ */ jsxs("div", { className: `inline-flex items-center text-sm font-bold px-2 py-0.5 rounded-full ${performanceScore >= 90 ? "bg-emerald-50 text-emerald-600" : performanceScore >= 70 ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"}`, children: [
+            /* @__PURE__ */ jsx(CheckCircle, { size: 14, className: "mr-1" }),
+            " ",
+            performanceScore,
+            "% score"
+          ] }),
+          /* @__PURE__ */ jsxs("p", { className: "text-[11px] text-slate-500 leading-tight", children: [
+            completedTasks.length,
+            " tasks done \xB7 ",
+            counselorReplies,
+            " replies \xB7 ",
+            itemsReviewed,
+            " reviewed"
+          ] })
+        ] })
       ] })
     ] }),
     /* @__PURE__ */ jsxs("div", { className: "bg-white border border-gray-200 rounded-xl p-6 shadow-sm", children: [
@@ -47,10 +105,14 @@ const CounselorDashboard = ({ onNavigate, tasks, currentUser, students, allStude
         /* @__PURE__ */ jsx(CheckSquare, { size: 18, className: "text-indigo-600" }),
         "Task Tower Overview"
       ] }),
-      /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-1 sm:grid-cols-3 gap-4", children: [
+      /* @__PURE__ */ jsxs("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-4", children: [
         /* @__PURE__ */ jsxs("div", { className: "p-4 bg-slate-50 rounded-lg border border-slate-100 text-center", children: [
           /* @__PURE__ */ jsx("div", { className: "text-2xl font-bold text-slate-900", children: completedTasks.length }),
           /* @__PURE__ */ jsx("div", { className: "text-xs text-slate-500 uppercase font-semibold mt-1", children: "Completed" })
+        ] }),
+        /* @__PURE__ */ jsxs("div", { className: "p-4 bg-amber-50 rounded-lg border border-amber-100 text-center", children: [
+          /* @__PURE__ */ jsx("div", { className: "text-2xl font-bold text-amber-800", children: pendingTasksOpen.length }),
+          /* @__PURE__ */ jsx("div", { className: "text-xs text-amber-700 uppercase font-semibold mt-1", children: "Pending Tasks" })
         ] }),
         /* @__PURE__ */ jsxs("div", { className: "p-4 bg-rose-50 rounded-lg border border-rose-100 text-center", children: [
           /* @__PURE__ */ jsx("div", { className: "text-2xl font-bold text-rose-700", children: overdueTasks.length }),

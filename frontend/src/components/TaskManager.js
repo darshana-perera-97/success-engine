@@ -4,6 +4,7 @@ import { TASKS, STUDENTS } from "../constants";
 import { Clock, AlertCircle, Plus, Lock, Upload, CheckCircle, Hourglass } from "lucide-react";
 import { Button } from "./Button";
 import { CreateTaskModal } from "./CreateTaskModal";
+import { filterTasksForCounselor } from "../counselorTaskScope";
 const TaskManager = ({
   userRole = "Admin",
   tasks = TASKS,
@@ -18,38 +19,23 @@ const TaskManager = ({
   employees = []
 }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const normalize = (value) => String(value || "").trim().toLowerCase();
-  const counselorIdentitySet = (() => {
-    if (userRole !== "Counselor") return /* @__PURE__ */ new Set();
-    const set = /* @__PURE__ */ new Set();
-    const add = (value) => {
-      const normalized = normalize(value);
-      if (normalized) set.add(normalized);
-    };
-    add(currentUser?.id);
-    add(currentUser?.email);
-    add(currentUser?.name);
-    return set;
-  })();
-  const monitoredStudentIds = /* @__PURE__ */ new Set(
-    (monitoredStudents || []).map((item) => String(item?.id || "").trim()).filter(Boolean)
-  );
   const studentLookup = (monitoredStudents && monitoredStudents.length > 0 ? monitoredStudents : STUDENTS).reduce((acc, studentItem) => {
     acc[String(studentItem?.id || "").trim()] = studentItem;
     return acc;
   }, {});
-  const filteredTasks = tasks.filter((task) => {
-    if (userRole === "Admin") return true;
-    if (userRole === "Manager") return task.priority === "High" || task.status === "Overdue" || task.status === "In Review";
-    if (userRole === "Counselor") {
-      const assignedTo = Array.isArray(task.assigned_to) ? task.assigned_to : [];
-      const isAssigned = assignedTo.some((assignee) => counselorIdentitySet.has(normalize(assignee)));
-      const isMonitoredStudentTask = monitoredStudentIds.has(String(task.student_id || "").trim());
-      return isAssigned || isMonitoredStudentTask;
+  const filteredTasks = (() => {
+    if (userRole === "Admin") return tasks;
+    if (userRole === "Manager") {
+      return tasks.filter((task) => task.priority === "High" || task.status === "Overdue" || task.status === "In Review");
     }
-    if (userRole === "Student") return task.student_id === student?.id && !task.isPrivate;
-    return false;
-  });
+    if (userRole === "Counselor") {
+      return filterTasksForCounselor(tasks, currentUser, monitoredStudents);
+    }
+    if (userRole === "Student") {
+      return tasks.filter((task) => task.student_id === student?.id && !task.isPrivate);
+    }
+    return [];
+  })();
   const handleStatusChange = (task, newStatus) => {
     const updatedTask = { ...task, status: newStatus };
     if (onUpdateTasks) {
